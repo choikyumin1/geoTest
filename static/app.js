@@ -8,9 +8,12 @@ const errorMsg = document.getElementById("error-msg");
 const heroSection = document.getElementById("hero");
 const resultsSection = document.getElementById("results");
 const resultDomain = document.getElementById("result-domain");
+const resultBrand = document.getElementById("result-brand");
 const cardsContainer = document.getElementById("llm-cards");
+const statusBar = document.getElementById("llm-status");
+const numQueriesSelect = document.getElementById("num-queries");
 
-// Chart instances (destroy before re-creating)
+// Chart instances
 let citationChart = null;
 let domainChart = null;
 
@@ -20,22 +23,35 @@ const LLM_COLORS = {
   Perplexity: "#20b8cd",
   Claude: "#d97706",
   Gemini: "#4285f4",
-  Copilot: "#9333ea",
 };
 
-const LLM_COLORS_ALPHA = {
-  ChatGPT: "rgba(16,163,127,0.15)",
-  Perplexity: "rgba(32,184,205,0.15)",
-  Claude: "rgba(217,119,6,0.15)",
-  Gemini: "rgba(66,133,244,0.15)",
-  Copilot: "rgba(147,51,234,0.15)",
-};
+// ===== Load LLM Status on page load =====
+async function loadStatus() {
+  try {
+    const res = await fetch("/api/status");
+    if (!res.ok) return;
+    const status = await res.json();
+    statusBar.innerHTML = "";
+    for (const [name, mode] of Object.entries(status)) {
+      const chip = document.createElement("span");
+      chip.className = `status-chip ${mode}`;
+      chip.innerHTML = `<span class="dot"></span>${name} <span style="opacity:0.7">${mode === "live" ? "API" : "Mock"}</span>`;
+      statusBar.appendChild(chip);
+    }
+  } catch {
+    // silently ignore
+  }
+}
+
+loadStatus();
 
 // ===== Form Submit =====
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   const url = input.value.trim();
   if (!url) return;
+
+  const numQueries = parseInt(numQueriesSelect.value, 10);
 
   setLoading(true);
   hideError();
@@ -45,15 +61,15 @@ form.addEventListener("submit", async (e) => {
     const res = await fetch("/api/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, num_queries: 10 }),
+      body: JSON.stringify({ url, num_queries: numQueries }),
     });
 
-    if (!res.ok) throw new Error(`서버 오류 (${res.status})`);
+    if (!res.ok) throw new Error(`Server error (${res.status})`);
 
     const data = await res.json();
     renderResults(data);
   } catch (err) {
-    showError(err.message || "분석 중 오류가 발생했습니다.");
+    showError(err.message || "Analysis failed.");
   } finally {
     setLoading(false);
   }
@@ -81,6 +97,7 @@ function renderResults(data) {
   heroSection.classList.add("compact");
   resultsSection.hidden = false;
   resultDomain.textContent = data.target_domain;
+  resultBrand.textContent = data.brand ? `Brand: ${data.brand}` : "";
 
   renderCitationChart(data.results);
   renderLLMCards(data.results);
@@ -97,15 +114,17 @@ function renderCitationChart(results) {
   const labels = results.map((r) => r.llm);
   const rates = results.map((r) => r.citation_rate);
   const colors = labels.map((l) => LLM_COLORS[l] || "#6c63ff");
-  const bgColors = labels.map((l) => LLM_COLORS_ALPHA[l] || "rgba(108,99,255,0.15)");
 
   citationChart = new Chart(ctx, {
     type: "bar",
     data: {
-      labels,
+      labels: labels.map((l, i) => {
+        const mode = results[i].mode;
+        return mode === "mock" ? `${l} (Mock)` : l;
+      }),
       datasets: [
         {
-          label: "인용율 (%)",
+          label: "Citation Rate (%)",
           data: rates,
           backgroundColor: colors,
           borderColor: colors,
@@ -122,7 +141,7 @@ function renderCitationChart(results) {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            label: (ctx) => `인용율: ${ctx.parsed.y}%`,
+            label: (ctx) => `Citation Rate: ${ctx.parsed.y}%`,
           },
         },
       },
@@ -151,16 +170,24 @@ function renderLLMCards(results) {
 
   results.forEach((r) => {
     const color = LLM_COLORS[r.llm] || "#6c63ff";
+    const modeClass = r.mode === "live" ? "live" : "mock";
+    const modeLabel = r.mode === "live" ? "LIVE" : "MOCK";
+
     const card = document.createElement("div");
     card.className = "llm-card";
     card.innerHTML = `
       <div class="card-header">
-        <span class="llm-name" style="color:${color}">${r.llm}</span>
+        <span class="llm-name" style="color:${color}">
+          ${r.llm}
+          <span class="mode-badge ${modeClass}">${modeLabel}</span>
+        </span>
         <span class="rate-badge" style="color:${color}">${r.citation_rate}%</span>
       </div>
-      <div class="stat-row"><span>총 쿼리 수</span><span>${r.total_queries}</span></div>
-      <div class="stat-row"><span>인용 횟수</span><span>${r.cited_count} / ${r.total_queries}</span></div>
-      <div class="stat-row"><span>인용 URL 수</span><span>${r.target_domain_urls.length}</span></div>
+      <div class="stat-row"><span>Total Queries</span><span>${r.total_queries}</span></div>
+      <div class="stat-row"><span>Successful</span><span>${r.successful_queries}</span></div>
+      <div class="stat-row"><span>Citations Found</span><span>${r.cited_count} / ${r.successful_queries}</span></div>
+      <div class="stat-row"><span>Target URLs</span><span>${r.target_domain_urls.length}</span></div>
+      ${r.errors > 0 ? `<div class="stat-row"><span style="color:#f87171">Errors</span><span style="color:#f87171">${r.errors}</span></div>` : ""}
       <div class="bar-track">
         <div class="bar-fill" style="width:${r.citation_rate}%;background:${color}"></div>
       </div>
@@ -171,7 +198,6 @@ function renderLLMCards(results) {
 
 // ===== 3. Top Domains Horizontal Bar Chart =====
 function renderDomainChart(results) {
-  // Aggregate top domains across all LLMs
   const domainTotals = {};
   results.forEach((r) => {
     for (const [domain, count] of Object.entries(r.top_domains)) {
@@ -197,7 +223,7 @@ function renderDomainChart(results) {
       labels: sorted.map(([d]) => d),
       datasets: [
         {
-          label: "인용 횟수",
+          label: "Citation Count",
           data: sorted.map(([, c]) => c),
           backgroundColor: sorted.map((_, i) => palette[i % palette.length]),
           borderRadius: 6,
