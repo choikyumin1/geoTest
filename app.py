@@ -72,11 +72,19 @@ async def analyze_llm(
     """Run multiple queries against one LLM and aggregate citation stats."""
     queries = generate_queries(target_domain, brand, num_queries)
 
-    tasks = [
-        run_single_query(client, q, target_domain)
-        for q in queries
-    ]
-    results = await asyncio.gather(*tasks)
+    is_mock = isinstance(client, MockLLMClient)
+
+    if is_mock:
+        # Mock: fire all at once
+        tasks = [run_single_query(client, q, target_domain) for q in queries]
+        results = await asyncio.gather(*tasks)
+    else:
+        # Real API: send sequentially with delay to avoid rate limits
+        results = []
+        for q in queries:
+            r = await run_single_query(client, q, target_domain)
+            results.append(r)
+            await asyncio.sleep(4)  # 4s gap → max 15 req/min
 
     cited_count = 0
     all_urls: list[str] = []
