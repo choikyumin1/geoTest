@@ -44,7 +44,7 @@ async def run_single_query(
     try:
         resp = await client.query(prompt)
     except Exception as e:
-        return {"error": str(e), "cited": False, "urls": []}
+        return {"error": str(e), "cited": False, "urls": [], "query": prompt, "response": ""}
 
     # Combine text-extracted URLs and structured citations
     text_urls = extract_urls(resp.text)
@@ -60,7 +60,13 @@ async def run_single_query(
             all_urls.append(fake_url)
             cited = True
 
-    return {"cited": cited, "urls": all_urls, "error": None}
+    return {
+        "cited": cited,
+        "urls": all_urls,
+        "error": None,
+        "query": prompt,
+        "response": resp.text,
+    }
 
 
 async def analyze_llm(
@@ -89,8 +95,18 @@ async def analyze_llm(
     cited_count = 0
     all_urls: list[str] = []
     errors = 0
+    query_details: list[dict] = []
 
     for r in results:
+        detail = {
+            "query": r.get("query", ""),
+            "response": r.get("response", ""),
+            "cited": r.get("cited", False),
+            "urls": r.get("urls", []),
+            "error": r.get("error"),
+        }
+        query_details.append(detail)
+
         if r.get("error"):
             errors += 1
             continue
@@ -116,6 +132,7 @@ async def analyze_llm(
             sorted(domain_counts.items(), key=lambda x: -x[1])[:10]
         ),
         "target_domain_urls": [u for u in all_urls if target_domain in u],
+        "query_details": query_details,
     }
 
 

@@ -92,6 +92,12 @@ function hideError() {
   errorMsg.hidden = true;
 }
 
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
 // ===== Render Results =====
 function renderResults(data) {
   heroSection.classList.add("compact");
@@ -100,7 +106,7 @@ function renderResults(data) {
   resultBrand.textContent = data.brand ? `Brand: ${data.brand}` : "";
 
   renderCitationChart(data.results);
-  renderLLMCards(data.results);
+  renderLLMCards(data.results, data.target_domain);
   renderDomainChart(data.results);
 
   resultsSection.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -164,17 +170,66 @@ function renderCitationChart(results) {
   });
 }
 
-// ===== 2. LLM Detail Cards =====
-function renderLLMCards(results) {
+// ===== 2. LLM Detail Cards with Query Details =====
+function renderLLMCards(results, targetDomain) {
   cardsContainer.innerHTML = "";
 
   results.forEach((r) => {
     const color = LLM_COLORS[r.llm] || "#6c63ff";
     const modeClass = r.mode === "live" ? "live" : "mock";
     const modeLabel = r.mode === "live" ? "LIVE" : "MOCK";
+    const details = r.query_details || [];
+
+    // Build query detail rows
+    let detailsHtml = "";
+    details.forEach((d, i) => {
+      const citedClass = d.cited ? "cited-yes" : "cited-no";
+      const citedLabel = d.cited ? "CITED" : "NOT CITED";
+      const errorHtml = d.error
+        ? `<div class="detail-error">Error: ${escapeHtml(d.error)}</div>`
+        : "";
+
+      // Highlight target domain URLs in the response
+      let responseHtml = escapeHtml(d.response);
+      if (targetDomain) {
+        const urlPattern = new RegExp(
+          `(https?://[^\\s)\\]}>,"']*${targetDomain.replace(/\./g, "\\.")}[^\\s)\\]}>,"']*)`,
+          "gi"
+        );
+        responseHtml = responseHtml.replace(
+          urlPattern,
+          '<span class="highlight-url">$1</span>'
+        );
+      }
+
+      // Extracted URLs list
+      let urlsHtml = "";
+      if (d.urls && d.urls.length > 0) {
+        const urlItems = d.urls
+          .map((u) => {
+            const isTarget = targetDomain && u.includes(targetDomain);
+            return `<li class="${isTarget ? "target-url" : ""}">${escapeHtml(u)}</li>`;
+          })
+          .join("");
+        urlsHtml = `<div class="detail-urls"><strong>Extracted URLs (${d.urls.length}):</strong><ul>${urlItems}</ul></div>`;
+      }
+
+      detailsHtml += `
+        <div class="query-detail">
+          <div class="detail-header">
+            <span class="detail-index">Q${i + 1}</span>
+            <span class="cited-badge ${citedClass}">${citedLabel}</span>
+          </div>
+          <div class="detail-query"><strong>Query:</strong> ${escapeHtml(d.query)}</div>
+          ${errorHtml}
+          <div class="detail-response"><strong>Response:</strong><div class="response-text">${responseHtml}</div></div>
+          ${urlsHtml}
+        </div>
+      `;
+    });
 
     const card = document.createElement("div");
-    card.className = "llm-card";
+    card.className = "llm-card full-width";
     card.innerHTML = `
       <div class="card-header">
         <span class="llm-name" style="color:${color}">
@@ -191,6 +246,12 @@ function renderLLMCards(results) {
       <div class="bar-track">
         <div class="bar-fill" style="width:${r.citation_rate}%;background:${color}"></div>
       </div>
+      ${details.length > 0 ? `
+        <button class="toggle-details" onclick="this.parentElement.querySelector('.query-details').classList.toggle('open'); this.textContent = this.textContent.includes('+') ? '- Hide Details' : '+ Show Details'">
+          + Show Details
+        </button>
+        <div class="query-details">${detailsHtml}</div>
+      ` : ""}
     `;
     cardsContainer.appendChild(card);
   });
