@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM Citation Rate Analyzer</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <!-- Hero / Search Section -->
+  <section id="hero">
+    <h1>LLM Citation Rate Analyzer</h1>
+    <p class="subtitle">URL을 입력하면 주요 LLM에서의 인용율을 분석합니다</p>
+
+    <form id="search-form">
+      <div class="input-group">
+        <input
+          id="url-input"
+          type="text"
+          placeholder="분석할 URL을 입력하세요  (예: samsung.com)"
+          autocomplete="off"
+          required
+        />
+        <button type="submit" id="search-btn">
+          <span class="btn-text">검색</span>
+          <span class="btn-loading" hidden>
+            <span class="spinner"></span> 분석 중...
+          </span>
+        </button>
+      </div>
+    </form>
+
+    <p id="error-msg" class="error" hidden></p>
+  </section>
+
+  <!-- Results Section -->
+  <section id="results" hidden>
+    <div class="result-header">
+      <h2>분석 결과</h2>
+      <p id="result-domain" class="domain-badge"></p>
+    </div>
+
+    <!-- Main bar chart -->
+    <div class="chart-container">
+      <canvas id="citation-chart"></canvas>
+    </div>
+
+    <!-- Per-LLM detail cards -->
+    <div id="llm-cards" class="cards-grid"></div>
+
+    <!-- Top cited domains chart -->
+    <div class="chart-container secondary-chart">
+      <h3>전체 LLM 기준 상위 인용 도메인</h3>
+      <canvas id="domain-chart"></canvas>
+    </div>
+  </section>
+
+  <footer>
+    <p>Citation Rate Analyzer &mdash; Mock data for demonstration</p>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

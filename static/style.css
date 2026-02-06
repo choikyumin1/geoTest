@@ -1,0 +1,272 @@
+/* ===== Reset & Base ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #0f1117;
+  --surface:   #1a1d27;
+  --card:      #222536;
+  --border:    #2e3248;
+  --text:      #e4e6f0;
+  --muted:     #8b8fa8;
+  --accent:    #6c63ff;
+  --accent-hover: #5a52e0;
+  --green:     #34d399;
+  --chart-1:   #6c63ff;
+  --chart-2:   #f472b6;
+  --chart-3:   #34d399;
+  --chart-4:   #facc15;
+  --chart-5:   #60a5fa;
+}
+
+body {
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== Hero Section ===== */
+#hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  padding: 2rem;
+  text-align: center;
+  transition: min-height 0.4s ease;
+}
+
+#hero.compact {
+  min-height: auto;
+  padding: 2rem 2rem 1rem;
+}
+
+h1 {
+  font-size: 2.4rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  background: linear-gradient(135deg, var(--accent), var(--chart-2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.subtitle {
+  color: var(--muted);
+  font-size: 1.1rem;
+  margin-bottom: 2rem;
+}
+
+/* ===== Input Group ===== */
+.input-group {
+  display: flex;
+  gap: 0;
+  max-width: 640px;
+  width: 100%;
+}
+
+#url-input {
+  flex: 1;
+  padding: 0.9rem 1.2rem;
+  font-size: 1rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 2px solid var(--border);
+  border-right: none;
+  border-radius: 12px 0 0 12px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+#url-input:focus {
+  border-color: var(--accent);
+}
+
+#url-input::placeholder {
+  color: var(--muted);
+}
+
+#search-btn {
+  padding: 0.9rem 1.8rem;
+  font-size: 1rem;
+  font-weight: 600;
+  background: var(--accent);
+  color: #fff;
+  border: 2px solid var(--accent);
+  border-radius: 0 12px 12px 0;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+#search-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+#search-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Spinner */
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Error */
+.error {
+  color: #f87171;
+  margin-top: 0.8rem;
+  font-size: 0.9rem;
+}
+
+/* ===== Results Section ===== */
+#results {
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 2rem 3rem;
+  animation: fadeIn 0.5s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.result-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.result-header h2 {
+  font-size: 1.5rem;
+}
+
+.domain-badge {
+  background: var(--accent);
+  color: #fff;
+  padding: 0.3rem 0.9rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* Chart containers */
+.chart-container {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.chart-container canvas {
+  max-height: 360px;
+}
+
+.secondary-chart h3 {
+  font-size: 1.1rem;
+  margin-bottom: 1rem;
+  color: var(--muted);
+}
+
+/* ===== LLM Cards Grid ===== */
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.llm-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1.2rem;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.llm-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+}
+
+.llm-card .card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.8rem;
+}
+
+.llm-card .llm-name {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.llm-card .rate-badge {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: var(--green);
+}
+
+.llm-card .stat-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  color: var(--muted);
+  padding: 0.25rem 0;
+}
+
+.llm-card .stat-row span:last-child {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.llm-card .bar-track {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  margin-top: 0.8rem;
+  overflow: hidden;
+}
+
+.llm-card .bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.8s ease;
+}
+
+/* ===== Footer ===== */
+footer {
+  margin-top: auto;
+  text-align: center;
+  padding: 1.5rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 600px) {
+  h1 { font-size: 1.6rem; }
+  .input-group { flex-direction: column; }
+  #url-input { border-right: 2px solid var(--border); border-radius: 12px 12px 0 0; }
+  #search-btn { border-radius: 0 0 12px 12px; }
+}
