@@ -74,9 +74,14 @@ async def analyze_llm(
     target_domain: str,
     brand: str,
     num_queries: int,
+    custom_prompts: list[str] | None = None,
 ) -> dict:
     """Run multiple queries against one LLM and aggregate citation stats."""
-    queries = generate_queries(target_domain, brand, num_queries)
+    if custom_prompts:
+        queries = custom_prompts
+        num_queries = len(queries)
+    else:
+        queries = generate_queries(target_domain, brand, num_queries)
 
     is_mock = isinstance(client, MockLLMClient)
 
@@ -143,6 +148,7 @@ async def analyze_llm(
 class AnalyzeRequest(BaseModel):
     url: str
     num_queries: int = 10
+    custom_prompts: list[str] | None = None
 
 
 @app.get("/api/status")
@@ -161,7 +167,7 @@ async def analyze_citation(req: AnalyzeRequest):
     clients = get_active_clients(use_mock_fallback=True)
 
     tasks = [
-        analyze_llm(c, target_domain, brand, req.num_queries)
+        analyze_llm(c, target_domain, brand, req.num_queries, req.custom_prompts)
         for c in clients
     ]
     results = await asyncio.gather(*tasks)

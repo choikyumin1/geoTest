@@ -12,10 +12,17 @@ const resultBrand = document.getElementById("result-brand");
 const cardsContainer = document.getElementById("llm-cards");
 const statusBar = document.getElementById("llm-status");
 const numQueriesSelect = document.getElementById("num-queries");
+const autoOptions = document.getElementById("auto-options");
+const customPromptArea = document.getElementById("custom-prompt-area");
+const promptList = document.getElementById("prompt-list");
+const addPromptBtn = document.getElementById("add-prompt-btn");
 
 // Chart instances
 let citationChart = null;
 let domainChart = null;
+
+// Current query mode
+let queryMode = "auto";
 
 // LLM color mapping
 const LLM_COLORS = {
@@ -45,13 +52,90 @@ async function loadStatus() {
 
 loadStatus();
 
+// ===== Query Mode Toggle =====
+document.querySelectorAll(".mode-tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".mode-tab").forEach((t) => t.classList.remove("active"));
+    tab.classList.add("active");
+    queryMode = tab.dataset.mode;
+
+    if (queryMode === "auto") {
+      autoOptions.hidden = false;
+      customPromptArea.hidden = true;
+    } else {
+      autoOptions.hidden = true;
+      customPromptArea.hidden = false;
+    }
+  });
+});
+
+// ===== Custom Prompt Management =====
+addPromptBtn.addEventListener("click", () => {
+  addPromptRow();
+});
+
+function addPromptRow() {
+  const rows = promptList.querySelectorAll(".prompt-row");
+  const num = rows.length + 1;
+  const row = document.createElement("div");
+  row.className = "prompt-row";
+  row.innerHTML = `
+    <span class="prompt-num">${num}</span>
+    <textarea class="prompt-input" rows="2" placeholder="프롬프트를 입력하세요..."></textarea>
+    <button type="button" class="remove-prompt-btn" title="삭제">&times;</button>
+  `;
+  row.querySelector(".remove-prompt-btn").addEventListener("click", () => {
+    row.remove();
+    renumberPrompts();
+  });
+  promptList.appendChild(row);
+  // Show remove buttons when more than 1 row
+  updateRemoveButtons();
+}
+
+function renumberPrompts() {
+  promptList.querySelectorAll(".prompt-row").forEach((row, i) => {
+    row.querySelector(".prompt-num").textContent = i + 1;
+  });
+  updateRemoveButtons();
+}
+
+function updateRemoveButtons() {
+  const rows = promptList.querySelectorAll(".prompt-row");
+  rows.forEach((row) => {
+    const btn = row.querySelector(".remove-prompt-btn");
+    btn.hidden = rows.length <= 1;
+  });
+}
+
+function getCustomPrompts() {
+  const prompts = [];
+  promptList.querySelectorAll(".prompt-input").forEach((ta) => {
+    const val = ta.value.trim();
+    if (val) prompts.push(val);
+  });
+  return prompts;
+}
+
 // ===== Form Submit =====
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   const url = input.value.trim();
   if (!url) return;
 
-  const numQueries = parseInt(numQueriesSelect.value, 10);
+  const body = { url };
+
+  if (queryMode === "custom") {
+    const prompts = getCustomPrompts();
+    if (prompts.length === 0) {
+      showError("프롬프트를 최소 1개 입력해주세요.");
+      return;
+    }
+    body.custom_prompts = prompts;
+    body.num_queries = prompts.length;
+  } else {
+    body.num_queries = parseInt(numQueriesSelect.value, 10);
+  }
 
   setLoading(true);
   hideError();
@@ -61,7 +145,7 @@ form.addEventListener("submit", async (e) => {
     const res = await fetch("/api/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, num_queries: numQueries }),
+      body: JSON.stringify(body),
     });
 
     if (!res.ok) throw new Error(`Server error (${res.status})`);

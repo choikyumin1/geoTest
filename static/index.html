@@ -32,13 +32,32 @@
           </span>
         </button>
       </div>
-      <div class="query-options">
+      <!-- Query Mode Toggle -->
+      <div class="query-mode-toggle">
+        <button type="button" class="mode-tab active" data-mode="auto">자동 생성 쿼리</button>
+        <button type="button" class="mode-tab" data-mode="custom">직접 작성</button>
+      </div>
+
+      <!-- Auto mode options -->
+      <div id="auto-options" class="query-options">
         <label for="num-queries">쿼리 수</label>
         <select id="num-queries">
           <option value="3">3</option>
           <option value="5">5</option>
           <option value="10" selected>10</option>
         </select>
+      </div>
+
+      <!-- Custom prompt area -->
+      <div id="custom-prompt-area" class="custom-prompt-area" hidden>
+        <div id="prompt-list">
+          <div class="prompt-row">
+            <span class="prompt-num">1</span>
+            <textarea class="prompt-input" rows="2" placeholder="LLM에 보낼 프롬프트를 입력하세요 (예: 삼성전자의 최신 스마트폰에 대해 알려줘. 출처를 포함해줘.)"></textarea>
+            <button type="button" class="remove-prompt-btn" title="삭제" hidden>&times;</button>
+          </div>
+        </div>
+        <button type="button" id="add-prompt-btn" class="add-prompt-btn">+ 프롬프트 추가</button>
       </div>
     </form>
 
