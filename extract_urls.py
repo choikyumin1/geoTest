@@ -69,6 +69,96 @@ def analyze_response(text: str, brands: list[str] | None = None) -> dict:
     return result
 
 
+# ---------------------------------------------------------------------------
+# Sentiment analysis (keyword-based)
+# ---------------------------------------------------------------------------
+
+POSITIVE_WORDS = {
+    "best", "great", "excellent", "leading", "innovative", "recommended",
+    "top", "popular", "trusted", "reliable", "award", "outstanding",
+    "superior", "premium", "advanced", "powerful", "impressive",
+    "efficient", "quality", "favorite", "renowned", "pioneering",
+    "success", "advantage", "strong", "dominat", "growth",
+}
+
+NEGATIVE_WORDS = {
+    "worst", "poor", "bad", "issue", "problem", "complaint",
+    "expensive", "overpriced", "disappointing", "failing", "slow",
+    "buggy", "unreliable", "inferior", "outdated", "weak",
+    "controversy", "lawsuit", "recall", "defect", "criticism",
+    "decline", "loss", "risk", "lag", "behind",
+}
+
+
+def analyze_sentiment(text: str, brand: str) -> dict:
+    """Analyze sentiment of text around brand mentions."""
+    text_lower = text.lower()
+    brand_lower = brand.lower()
+
+    if brand_lower not in text_lower:
+        return {"score": 0, "label": "neutral", "positive": 0, "negative": 0}
+
+    # Extract context windows around each brand mention
+    contexts = []
+    for match in re.finditer(re.escape(brand_lower), text_lower):
+        start = max(0, match.start() - 200)
+        end = min(len(text_lower), match.end() + 200)
+        contexts.append(text_lower[start:end])
+
+    context_text = " ".join(contexts) if contexts else text_lower
+    words = set(re.findall(r"[a-z]+", context_text))
+
+    pos = len(words & POSITIVE_WORDS)
+    neg = len(words & NEGATIVE_WORDS)
+
+    total = pos + neg
+    if total == 0:
+        return {"score": 0, "label": "neutral", "positive": 0, "negative": 0}
+
+    score = round((pos - neg) / total, 2)
+    if score > 0.2:
+        label = "positive"
+    elif score < -0.2:
+        label = "negative"
+    else:
+        label = "neutral"
+
+    return {"score": score, "label": label, "positive": pos, "negative": neg}
+
+
+# ---------------------------------------------------------------------------
+# Citation position analysis
+# ---------------------------------------------------------------------------
+
+def analyze_position(text: str, target_domain: str, brand: str) -> dict:
+    """Analyze where in the response the brand/URL first appears."""
+    text_lower = text.lower()
+    text_len = len(text_lower)
+
+    if text_len == 0:
+        return {"position_pct": -1, "section": "none"}
+
+    domain_pos = text_lower.find(target_domain.lower())
+    brand_pos = text_lower.find(brand.lower())
+
+    positions = [p for p in [domain_pos, brand_pos] if p >= 0]
+
+    if not positions:
+        return {"position_pct": -1, "section": "none"}
+
+    first_pos = min(positions)
+    pct = round(first_pos / text_len * 100, 1)
+
+    if pct <= 33:
+        section = "top"
+    elif pct <= 66:
+        section = "middle"
+    else:
+        section = "bottom"
+
+    return {"position_pct": pct, "section": section}
+
+
 if __name__ == "__main__":
     sample_text = """
     According to Samsung Healthcare, the new device improves diagnostics.

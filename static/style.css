@@ -236,6 +236,118 @@ h1 {
   background: rgba(108,99,255,0.18);
 }
 
+/* ===== Competitor Input ===== */
+.competitor-area {
+  max-width: 640px;
+  width: 100%;
+  margin-top: 0.6rem;
+  text-align: left;
+}
+
+.competitor-area label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-bottom: 0.3rem;
+}
+
+#competitor-input {
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.88rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+
+#competitor-input:focus {
+  border-color: var(--accent);
+}
+
+#competitor-input::placeholder {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+/* ===== Summary Metrics Grid ===== */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.8rem;
+  margin-bottom: 1.5rem;
+}
+
+.metric-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem;
+  text-align: center;
+}
+
+.metric-card .metric-value {
+  font-size: 1.8rem;
+  font-weight: 800;
+  margin-bottom: 0.2rem;
+}
+
+.metric-card .metric-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* Chart row (two charts side by side) */
+.chart-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.half-chart {
+  margin-bottom: 0;
+}
+
+.half-chart h3 {
+  font-size: 1rem;
+  margin-bottom: 0.8rem;
+  color: var(--muted);
+}
+
+@media (max-width: 700px) {
+  .chart-row { grid-template-columns: 1fr; }
+}
+
+/* Sentiment badge in detail */
+.sentiment-badge {
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.sentiment-badge.positive { background: rgba(52,211,153,0.15); color: var(--green); }
+.sentiment-badge.neutral  { background: rgba(139,143,168,0.15); color: var(--muted); }
+.sentiment-badge.negative { background: rgba(248,113,113,0.15); color: #f87171; }
+
+.position-badge {
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.position-badge.top    { background: rgba(52,211,153,0.15); color: var(--green); }
+.position-badge.middle { background: rgba(250,204,21,0.15); color: #facc15; }
+.position-badge.bottom { background: rgba(248,113,113,0.15); color: #f87171; }
+.position-badge.none   { background: rgba(139,143,168,0.15); color: var(--muted); }
+
 /* ===== Input Group ===== */
 .input-group {
   display: flex;

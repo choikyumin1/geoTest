@@ -25,6 +25,14 @@
           autocomplete="off"
           required
         />
+      </div>
+      <div class="competitor-area">
+        <label>경쟁사 도메인 (선택)</label>
+        <input
+          id="competitor-input"
+          type="text"
+          placeholder="쉼표로 구분 (예: apple.com, lg.com, huawei.com)"
+        />
         <button type="submit" id="search-btn">
           <span class="btn-text">검색</span>
           <span class="btn-loading" hidden>
@@ -72,9 +80,30 @@
       <p id="result-brand" class="brand-label"></p>
     </div>
 
+    <!-- Summary Metrics -->
+    <div id="summary-metrics" class="metrics-grid"></div>
+
     <!-- Main bar chart -->
     <div class="chart-container">
       <canvas id="citation-chart"></canvas>
+    </div>
+
+    <!-- Mention + Sentiment + Position charts -->
+    <div class="chart-row">
+      <div class="chart-container half-chart">
+        <h3>감성 분석 (Sentiment)</h3>
+        <canvas id="sentiment-chart"></canvas>
+      </div>
+      <div class="chart-container half-chart">
+        <h3>인용 위치 (Position)</h3>
+        <canvas id="position-chart"></canvas>
+      </div>
+    </div>
+
+    <!-- Competitor comparison -->
+    <div id="competitor-section" class="chart-container secondary-chart" hidden>
+      <h3>경쟁사 비교 (Competitor Share)</h3>
+      <canvas id="competitor-chart"></canvas>
     </div>
 
     <!-- Per-LLM detail cards -->

@@ -17,9 +17,15 @@ const customPromptArea = document.getElementById("custom-prompt-area");
 const promptList = document.getElementById("prompt-list");
 const addPromptBtn = document.getElementById("add-prompt-btn");
 
+const competitorInput = document.getElementById("competitor-input");
+const summaryMetrics = document.getElementById("summary-metrics");
+
 // Chart instances
 let citationChart = null;
 let domainChart = null;
+let sentimentChart = null;
+let positionChart = null;
+let competitorChart = null;
 
 // Current query mode
 let queryMode = "auto";
@@ -125,6 +131,12 @@ form.addEventListener("submit", async (e) => {
 
   const body = { url };
 
+  // Competitors
+  const compText = competitorInput.value.trim();
+  if (compText) {
+    body.competitors = compText.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+
   if (queryMode === "custom") {
     const prompts = getCustomPrompts();
     if (prompts.length === 0) {
@@ -189,11 +201,70 @@ function renderResults(data) {
   resultDomain.textContent = data.target_domain;
   resultBrand.textContent = data.brand ? `Brand: ${data.brand}` : "";
 
+  renderSummaryMetrics(data.results);
   renderCitationChart(data.results);
+  renderSentimentChart(data.results);
+  renderPositionChart(data.results);
+  renderCompetitorChart(data.results, data.target_domain);
   renderLLMCards(data.results, data.target_domain);
   renderDomainChart(data.results);
 
   resultsSection.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// ===== Summary Metric Cards =====
+function renderSummaryMetrics(results) {
+  const live = results.filter((r) => r.mode === "live");
+  const source = live.length > 0 ? live : results;
+
+  const avgCitation = avg(source.map((r) => r.citation_rate));
+  const avgMention = avg(source.map((r) => r.mention_rate));
+  const avgSent = avg(source.map((r) => r.avg_sentiment));
+  const avgPos = avg(
+    source.map((r) => r.avg_position).filter((p) => p >= 0)
+  );
+
+  const sentLabel = avgSent > 0.2 ? "Positive" : avgSent < -0.2 ? "Negative" : "Neutral";
+  const sentColor = avgSent > 0.2 ? "var(--green)" : avgSent < -0.2 ? "#f87171" : "var(--muted)";
+  const posLabel = avgPos < 0 ? "N/A" : avgPos <= 33 ? "Top" : avgPos <= 66 ? "Middle" : "Bottom";
+  const posColor = avgPos <= 33 ? "var(--green)" : avgPos <= 66 ? "#facc15" : "#f87171";
+
+  summaryMetrics.innerHTML = `
+    <div class="metric-card">
+      <div class="metric-value" style="color:var(--accent)">${avgCitation.toFixed(1)}%</div>
+      <div class="metric-label">Avg Citation Rate</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-value" style="color:var(--chart-5)">${avgMention.toFixed(1)}%</div>
+      <div class="metric-label">Avg Mention Rate</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-value" style="color:${sentColor}">${sentLabel}</div>
+      <div class="metric-label">Avg Sentiment (${avgSent.toFixed(2)})</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-value" style="color:${posColor}">${posLabel}</div>
+      <div class="metric-label">Avg Position${avgPos >= 0 ? ` (${avgPos.toFixed(0)}%)` : ""}</div>
+    </div>
+  `;
+}
+
+function avg(arr) {
+  if (!arr.length) return 0;
+  return arr.reduce((a, b) => a + b, 0) / arr.length;
+}
+
+function sentimentLabel(score) {
+  if (score > 0.2) return "positive";
+  if (score < -0.2) return "negative";
+  return "neutral";
+}
+
+function positionLabel(pct) {
+  if (pct < 0) return "none";
+  if (pct <= 33) return "top";
+  if (pct <= 66) return "middle";
+  return "bottom";
 }
 
 // ===== 1. Main Bar Chart: Citation Rate per LLM =====
@@ -254,7 +325,124 @@ function renderCitationChart(results) {
   });
 }
 
-// ===== 2. LLM Detail Cards with Query Details =====
+// ===== 2. Sentiment Chart =====
+function renderSentimentChart(results) {
+  const ctx = document.getElementById("sentiment-chart").getContext("2d");
+  if (sentimentChart) sentimentChart.destroy();
+
+  const labels = results.map((r) => r.llm);
+  const posData = results.map((r) => r.sentiment_dist?.positive || 0);
+  const neuData = results.map((r) => r.sentiment_dist?.neutral || 0);
+  const negData = results.map((r) => r.sentiment_dist?.negative || 0);
+
+  sentimentChart = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        { label: "Positive", data: posData, backgroundColor: "#34d399", borderRadius: 4 },
+        { label: "Neutral", data: neuData, backgroundColor: "#8b8fa8", borderRadius: 4 },
+        { label: "Negative", data: negData, backgroundColor: "#f87171", borderRadius: 4 },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: { legend: { labels: { color: "#8b8fa8", font: { size: 11 } } } },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { color: "#e4e6f0" } },
+        y: { stacked: true, beginAtZero: true, grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#8b8fa8", stepSize: 1 } },
+      },
+    },
+  });
+}
+
+// ===== 3. Position Chart =====
+function renderPositionChart(results) {
+  const ctx = document.getElementById("position-chart").getContext("2d");
+  if (positionChart) positionChart.destroy();
+
+  const labels = results.map((r) => r.llm);
+  const topData = results.map((r) => r.position_dist?.top || 0);
+  const midData = results.map((r) => r.position_dist?.middle || 0);
+  const botData = results.map((r) => r.position_dist?.bottom || 0);
+  const noneData = results.map((r) => r.position_dist?.none || 0);
+
+  positionChart = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        { label: "Top (상단)", data: topData, backgroundColor: "#34d399", borderRadius: 4 },
+        { label: "Middle (중간)", data: midData, backgroundColor: "#facc15", borderRadius: 4 },
+        { label: "Bottom (하단)", data: botData, backgroundColor: "#f87171", borderRadius: 4 },
+        { label: "None (없음)", data: noneData, backgroundColor: "#3a3d52", borderRadius: 4 },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: { legend: { labels: { color: "#8b8fa8", font: { size: 11 } } } },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { color: "#e4e6f0" } },
+        y: { stacked: true, beginAtZero: true, grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#8b8fa8", stepSize: 1 } },
+      },
+    },
+  });
+}
+
+// ===== 4. Competitor Comparison Chart =====
+function renderCompetitorChart(results, targetDomain) {
+  const section = document.getElementById("competitor-section");
+  const hasCompetitors = results.some((r) => Object.keys(r.competitor_rates || {}).length > 0);
+
+  if (!hasCompetitors) {
+    section.hidden = true;
+    return;
+  }
+  section.hidden = false;
+
+  const ctx = document.getElementById("competitor-chart").getContext("2d");
+  if (competitorChart) competitorChart.destroy();
+
+  // Gather all domains (target + competitors)
+  const competitors = new Set();
+  results.forEach((r) => {
+    Object.keys(r.competitor_rates || {}).forEach((c) => competitors.add(c));
+  });
+
+  const allDomains = [targetDomain, ...competitors];
+  const palette = ["#6c63ff", "#f472b6", "#facc15", "#60a5fa", "#fb923c", "#a78bfa"];
+
+  const datasets = allDomains.map((domain, i) => ({
+    label: domain,
+    data: results.map((r) => {
+      if (domain === targetDomain) return r.citation_rate;
+      return r.competitor_rates?.[domain] || 0;
+    }),
+    backgroundColor: palette[i % palette.length],
+    borderRadius: 4,
+  }));
+
+  competitorChart = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: results.map((r) => r.llm),
+      datasets,
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: { legend: { labels: { color: "#8b8fa8", font: { size: 11 } } } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: "#e4e6f0" } },
+        y: { beginAtZero: true, max: 100, grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#8b8fa8", callback: (v) => v + "%" } },
+      },
+    },
+  });
+}
+
+// ===== 5. LLM Detail Cards with Query Details =====
 function renderLLMCards(results, targetDomain) {
   cardsContainer.innerHTML = "";
 
@@ -303,6 +491,9 @@ function renderLLMCards(results, targetDomain) {
           <div class="detail-header">
             <span class="detail-index">Q${i + 1}</span>
             <span class="cited-badge ${citedClass}">${citedLabel}</span>
+            ${d.brand_mentioned ? '<span class="cited-badge cited-yes">MENTIONED</span>' : ""}
+            ${d.sentiment ? `<span class="sentiment-badge ${d.sentiment.label}">${d.sentiment.label}</span>` : ""}
+            ${d.position ? `<span class="position-badge ${d.position.section}">${d.position.section}</span>` : ""}
           </div>
           <div class="detail-query"><strong>Query:</strong> ${escapeHtml(d.query)}</div>
           ${errorHtml}
@@ -324,8 +515,10 @@ function renderLLMCards(results, targetDomain) {
       </div>
       <div class="stat-row"><span>Total Queries</span><span>${r.total_queries}</span></div>
       <div class="stat-row"><span>Successful</span><span>${r.successful_queries}</span></div>
-      <div class="stat-row"><span>Citations Found</span><span>${r.cited_count} / ${r.successful_queries}</span></div>
-      <div class="stat-row"><span>Target URLs</span><span>${r.target_domain_urls.length}</span></div>
+      <div class="stat-row"><span>Citation Rate</span><span>${r.citation_rate}%</span></div>
+      <div class="stat-row"><span>Mention Rate</span><span>${r.mention_rate}%</span></div>
+      <div class="stat-row"><span>Sentiment</span><span><span class="sentiment-badge ${sentimentLabel(r.avg_sentiment)}">${sentimentLabel(r.avg_sentiment)} (${r.avg_sentiment})</span></span></div>
+      <div class="stat-row"><span>Avg Position</span><span><span class="position-badge ${positionLabel(r.avg_position)}">${positionLabel(r.avg_position)}${r.avg_position >= 0 ? ` (${r.avg_position}%)` : ""}</span></span></div>
       ${r.errors > 0 ? `<div class="stat-row"><span style="color:#f87171">Errors</span><span style="color:#f87171">${r.errors}</span></div>` : ""}
       <div class="bar-track">
         <div class="bar-fill" style="width:${r.citation_rate}%;background:${color}"></div>
