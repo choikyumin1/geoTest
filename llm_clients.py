@@ -14,40 +14,78 @@ from dataclasses import dataclass, field
 
 
 # ---------------------------------------------------------------------------
-# Query generation
+# Categorized query templates
 # ---------------------------------------------------------------------------
 
-QUERY_TEMPLATES = [
-    "What are the main products and services offered by {brand}? Provide source URLs.",
-    "Tell me about {brand}'s latest news, developments, and innovations. Include references.",
-    "What is {domain} and what kind of information can I find on that website? Cite sources.",
-    "Compare {brand} with its main competitors. Include source links.",
-    "What do industry experts and reviewers say about {brand}? Cite your sources.",
-    "Provide a comprehensive overview of {brand}'s history and achievements with references.",
-    "What are the top-rated products or services from {brand}? Include URLs to reviews.",
-    "How does {brand} rank in its industry? Provide data and source URLs.",
-    "What recent announcements has {brand} made? Provide news source links.",
-    "Recommend the best resources to learn more about {brand}. Include website URLs.",
-    "What is {brand}'s market strategy and competitive advantage? Cite references.",
-    "Summarize the latest research or reports published by {brand}. Include links.",
-]
+QUERY_CATEGORIES = {
+    "informational": {
+        "label": "정보형",
+        "templates": [
+            "What are the main products and services offered by {brand}? Provide source URLs.",
+            "What is {domain} and what kind of information can I find on that website? Cite sources.",
+            "Provide a comprehensive overview of {brand}'s history and achievements with references.",
+        ],
+    },
+    "comparison": {
+        "label": "비교형",
+        "templates": [
+            "Compare {brand} with its main competitors in the industry. Include source links.",
+            "How does {brand} rank compared to alternatives in its industry? Provide data and source URLs.",
+            "What are the pros and cons of choosing {brand} over competitors? Include references.",
+        ],
+    },
+    "transactional": {
+        "label": "구매/추천형",
+        "templates": [
+            "What are the top-rated products or services from {brand}? Include URLs to reviews.",
+            "Recommend the best resources to learn more about {brand}. Include website URLs.",
+            "I'm considering using {brand}. What should I know before deciding? Include sources.",
+        ],
+    },
+    "problem_solving": {
+        "label": "문제해결형",
+        "templates": [
+            "What common issues do people face with {brand} products and how to resolve them? Include sources.",
+            "How do I get the most out of {brand}'s services? Provide tips with references and URLs.",
+        ],
+    },
+    "reputation": {
+        "label": "평판형",
+        "templates": [
+            "What do industry experts and reviewers say about {brand}? Cite your sources.",
+            "What recent announcements or news has {brand} made? Provide news source links.",
+            "What is {brand}'s market strategy and competitive advantage? Cite references.",
+            "Summarize the latest research or reports related to {brand}. Include links.",
+        ],
+    },
+}
 
 
-def generate_queries(domain: str, brand: str, num: int) -> list[str]:
-    """Generate diverse prompts about the target domain/brand."""
-    templates = list(QUERY_TEMPLATES)
-    random.shuffle(templates)
+def generate_queries(domain: str, brand: str, num: int) -> list[dict]:
+    """Generate categorized prompts. Returns list of {"prompt": str, "category": str, "category_label": str}."""
+    all_templates = []
+    for cat_key, cat_data in QUERY_CATEGORIES.items():
+        for tmpl in cat_data["templates"]:
+            all_templates.append({
+                "template": tmpl,
+                "category": cat_key,
+                "category_label": cat_data["label"],
+            })
+
+    random.shuffle(all_templates)
+
     queries = []
     for i in range(num):
-        tmpl = templates[i % len(templates)]
-        queries.append(tmpl.format(domain=domain, brand=brand))
+        t = all_templates[i % len(all_templates)]
+        queries.append({
+            "prompt": t["template"].format(domain=domain, brand=brand),
+            "category": t["category"],
+            "category_label": t["category_label"],
+        })
     return queries
 
 
 def domain_to_brand(domain: str) -> str:
-    """Extract a human-readable brand name from a domain.
-    e.g. 'www.samsung.com' -> 'Samsung', 'news.naver.com' -> 'Naver'
-    """
     parts = domain.lower().replace("www.", "").split(".")
     name = parts[0] if parts else domain
     return name.capitalize()
@@ -148,8 +186,6 @@ class PerplexityClient(BaseLLMClient):
             resp.raise_for_status()
             data = resp.json()
             text = data["choices"][0]["message"]["content"]
-
-            # Perplexity returns structured citations
             citations = data.get("citations", [])
             return LLMResponse(text=text, citations=citations)
 
@@ -230,7 +266,6 @@ class GeminiClient(BaseLLMClient):
             data = resp.json()
             text = data["candidates"][0]["content"]["parts"][0]["text"]
 
-            # Check for grounding metadata citations
             citations = []
             metadata = data["candidates"][0].get("groundingMetadata", {})
             for chunk in metadata.get("groundingChunks", []):
@@ -242,18 +277,16 @@ class GeminiClient(BaseLLMClient):
 
 
 # ---------------------------------------------------------------------------
-# Mock client (fallback when no API keys)
+# Mock client
 # ---------------------------------------------------------------------------
 
 class MockLLMClient(BaseLLMClient):
-    """Generates fake responses for demo/testing."""
-
     def __init__(self, name: str, citation_prob: float = 0.5):
         self.name = name
         self._citation_prob = citation_prob
 
     def is_available(self) -> bool:
-        return True  # always available
+        return True
 
     async def query(self, prompt: str) -> LLMResponse:
         await asyncio.sleep(random.uniform(0.1, 0.3))
@@ -306,20 +339,16 @@ MOCK_PROFILES: dict[str, float] = {
 
 
 def get_active_clients(use_mock_fallback: bool = True) -> list[BaseLLMClient]:
-    """Return available real clients, plus mock fallbacks if enabled."""
     real = [c for c in ALL_REAL_CLIENTS if c.is_available()]
     real_names = {c.name for c in real}
-
     if use_mock_fallback:
         for name, prob in MOCK_PROFILES.items():
             if name not in real_names:
                 real.append(MockLLMClient(name=name, citation_prob=prob))
-
     return real
 
 
 def get_status() -> dict[str, str]:
-    """Return each LLM's connection status: 'live' or 'mock'."""
     status = {}
     for c in ALL_REAL_CLIENTS:
         status[c.name] = "live" if c.is_available() else "mock"

@@ -1,4 +1,4 @@
-// ===== DOM Elements =====
+// ===== DOM =====
 const form = document.getElementById("search-form");
 const input = document.getElementById("url-input");
 const btn = document.getElementById("search-btn");
@@ -6,7 +6,7 @@ const btnText = btn.querySelector(".btn-text");
 const btnLoading = btn.querySelector(".btn-loading");
 const errorMsg = document.getElementById("error-msg");
 const heroSection = document.getElementById("hero");
-const resultsSection = document.getElementById("results");
+const dashboard = document.getElementById("dashboard");
 const resultDomain = document.getElementById("result-domain");
 const resultBrand = document.getElementById("result-brand");
 const cardsContainer = document.getElementById("llm-cards");
@@ -16,21 +16,13 @@ const autoOptions = document.getElementById("auto-options");
 const customPromptArea = document.getElementById("custom-prompt-area");
 const promptList = document.getElementById("prompt-list");
 const addPromptBtn = document.getElementById("add-prompt-btn");
-
 const competitorInput = document.getElementById("competitor-input");
 const summaryMetrics = document.getElementById("summary-metrics");
 
-// Chart instances
-let citationChart = null;
-let domainChart = null;
-let sentimentChart = null;
-let positionChart = null;
-let competitorChart = null;
-
-// Current query mode
+// Charts
+let charts = {};
 let queryMode = "auto";
 
-// LLM color mapping
 const LLM_COLORS = {
   ChatGPT: "#10a37f",
   Perplexity: "#20b8cd",
@@ -38,7 +30,17 @@ const LLM_COLORS = {
   Gemini: "#4285f4",
 };
 
-// ===== Load LLM Status on page load =====
+const CHART_DEFAULTS = {
+  responsive: true,
+  maintainAspectRatio: true,
+  plugins: { legend: { labels: { color: "#8b8fa8", font: { size: 11 } } } },
+  scales: {
+    x: { grid: { display: false }, ticks: { color: "#e4e6f0", font: { size: 11 } } },
+    y: { beginAtZero: true, grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#8b8fa8" } },
+  },
+};
+
+// ===== Status =====
 async function loadStatus() {
   try {
     const res = await fetch("/api/status");
@@ -51,51 +53,35 @@ async function loadStatus() {
       chip.innerHTML = `<span class="dot"></span>${name} <span style="opacity:0.7">${mode === "live" ? "API" : "Mock"}</span>`;
       statusBar.appendChild(chip);
     }
-  } catch {
-    // silently ignore
-  }
+  } catch {}
 }
-
 loadStatus();
 
-// ===== Query Mode Toggle =====
+// ===== Query Mode =====
 document.querySelectorAll(".mode-tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     document.querySelectorAll(".mode-tab").forEach((t) => t.classList.remove("active"));
     tab.classList.add("active");
     queryMode = tab.dataset.mode;
-
-    if (queryMode === "auto") {
-      autoOptions.hidden = false;
-      customPromptArea.hidden = true;
-    } else {
-      autoOptions.hidden = true;
-      customPromptArea.hidden = false;
-    }
+    autoOptions.hidden = queryMode !== "auto";
+    customPromptArea.hidden = queryMode !== "custom";
   });
 });
 
-// ===== Custom Prompt Management =====
-addPromptBtn.addEventListener("click", () => {
-  addPromptRow();
-});
+// ===== Custom Prompts =====
+addPromptBtn.addEventListener("click", addPromptRow);
 
 function addPromptRow() {
   const rows = promptList.querySelectorAll(".prompt-row");
-  const num = rows.length + 1;
   const row = document.createElement("div");
   row.className = "prompt-row";
   row.innerHTML = `
-    <span class="prompt-num">${num}</span>
+    <span class="prompt-num">${rows.length + 1}</span>
     <textarea class="prompt-input" rows="2" placeholder="프롬프트를 입력하세요..."></textarea>
     <button type="button" class="remove-prompt-btn" title="삭제">&times;</button>
   `;
-  row.querySelector(".remove-prompt-btn").addEventListener("click", () => {
-    row.remove();
-    renumberPrompts();
-  });
+  row.querySelector(".remove-prompt-btn").addEventListener("click", () => { row.remove(); renumberPrompts(); });
   promptList.appendChild(row);
-  // Show remove buttons when more than 1 row
   updateRemoveButtons();
 }
 
@@ -108,10 +94,7 @@ function renumberPrompts() {
 
 function updateRemoveButtons() {
   const rows = promptList.querySelectorAll(".prompt-row");
-  rows.forEach((row) => {
-    const btn = row.querySelector(".remove-prompt-btn");
-    btn.hidden = rows.length <= 1;
-  });
+  rows.forEach((row) => { row.querySelector(".remove-prompt-btn").hidden = rows.length <= 1; });
 }
 
 function getCustomPrompts() {
@@ -130,19 +113,12 @@ form.addEventListener("submit", async (e) => {
   if (!url) return;
 
   const body = { url };
-
-  // Competitors
   const compText = competitorInput.value.trim();
-  if (compText) {
-    body.competitors = compText.split(",").map((s) => s.trim()).filter(Boolean);
-  }
+  if (compText) body.competitors = compText.split(",").map(s => s.trim()).filter(Boolean);
 
   if (queryMode === "custom") {
     const prompts = getCustomPrompts();
-    if (prompts.length === 0) {
-      showError("프롬프트를 최소 1개 입력해주세요.");
-      return;
-    }
+    if (prompts.length === 0) { showError("프롬프트를 최소 1개 입력해주세요."); return; }
     body.custom_prompts = prompts;
     body.num_queries = prompts.length;
   } else {
@@ -151,7 +127,7 @@ form.addEventListener("submit", async (e) => {
 
   setLoading(true);
   hideError();
-  resultsSection.hidden = true;
+  dashboard.hidden = true;
 
   try {
     const res = await fetch("/api/analyze", {
@@ -159,11 +135,9 @@ form.addEventListener("submit", async (e) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-
     if (!res.ok) throw new Error(`Server error (${res.status})`);
-
     const data = await res.json();
-    renderResults(data);
+    renderDashboard(data);
   } catch (err) {
     showError(err.message || "Analysis failed.");
   } finally {
@@ -171,340 +145,463 @@ form.addEventListener("submit", async (e) => {
   }
 });
 
-// ===== UI Helpers =====
-function setLoading(loading) {
-  btn.disabled = loading;
-  input.disabled = loading;
-  btnText.hidden = loading;
-  btnLoading.hidden = !loading;
+// ===== Helpers =====
+function setLoading(on) {
+  btn.disabled = on;
+  input.disabled = on;
+  btnText.hidden = on;
+  btnLoading.hidden = !on;
 }
 
-function showError(msg) {
-  errorMsg.textContent = msg;
-  errorMsg.hidden = false;
+function showError(msg) { errorMsg.textContent = msg; errorMsg.hidden = false; }
+function hideError() { errorMsg.hidden = true; }
+function esc(text) { const d = document.createElement("div"); d.textContent = text; return d.innerHTML; }
+function avg(arr) { return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0; }
+function sentLabel(s) { return s > 0.15 ? "positive" : s < -0.15 ? "negative" : "neutral"; }
+function posLabel(p) { return p < 0 ? "none" : p <= 33 ? "top" : p <= 66 ? "middle" : "bottom"; }
+
+function destroyChart(key) { if (charts[key]) { charts[key].destroy(); charts[key] = null; } }
+
+function scoreColor(score) {
+  if (score >= 70) return "#34d399";
+  if (score >= 40) return "#facc15";
+  return "#f87171";
 }
 
-function hideError() {
-  errorMsg.hidden = true;
-}
-
-function escapeHtml(text) {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
-}
-
-// ===== Render Results =====
-function renderResults(data) {
+// ===== Render Dashboard =====
+function renderDashboard(data) {
   heroSection.classList.add("compact");
-  resultsSection.hidden = false;
+  dashboard.hidden = false;
   resultDomain.textContent = data.target_domain;
   resultBrand.textContent = data.brand ? `Brand: ${data.brand}` : "";
 
-  renderSummaryMetrics(data.results);
+  renderAEOScoreRing(data.global_aeo_score);
+  renderKPICards(data.results, data.global_aeo_score);
   renderCitationChart(data.results);
+  renderAEOScoreChart(data.results);
   renderSentimentChart(data.results);
   renderPositionChart(data.results);
+  renderCategoryChart(data.results);
   renderCompetitorChart(data.results, data.target_domain);
-  renderLLMCards(data.results, data.target_domain);
+  renderSOVChart(data.results);
+  renderDepthChart(data.results);
   renderDomainChart(data.results);
+  renderLLMCards(data.results, data.target_domain);
 
-  resultsSection.scrollIntoView({ behavior: "smooth", block: "start" });
+  dashboard.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-// ===== Summary Metric Cards =====
-function renderSummaryMetrics(results) {
-  const live = results.filter((r) => r.mode === "live");
-  const source = live.length > 0 ? live : results;
+// ===== AEO Score Ring =====
+function renderAEOScoreRing(score) {
+  const container = document.getElementById("aeo-score-ring");
+  const pct = Math.min(100, Math.max(0, score));
+  const circumference = 2 * Math.PI * 42;
+  const offset = circumference - (pct / 100) * circumference;
+  const color = scoreColor(score);
 
-  const avgCitation = avg(source.map((r) => r.citation_rate));
-  const avgMention = avg(source.map((r) => r.mention_rate));
-  const avgSent = avg(source.map((r) => r.avg_sentiment));
-  const avgPos = avg(
-    source.map((r) => r.avg_position).filter((p) => p >= 0)
-  );
-
-  const sentLabel = avgSent > 0.2 ? "Positive" : avgSent < -0.2 ? "Negative" : "Neutral";
-  const sentColor = avgSent > 0.2 ? "var(--green)" : avgSent < -0.2 ? "#f87171" : "var(--muted)";
-  const posLabel = avgPos < 0 ? "N/A" : avgPos <= 33 ? "Top" : avgPos <= 66 ? "Middle" : "Bottom";
-  const posColor = avgPos <= 33 ? "var(--green)" : avgPos <= 66 ? "#facc15" : "#f87171";
-
-  summaryMetrics.innerHTML = `
-    <div class="metric-card">
-      <div class="metric-value" style="color:var(--accent)">${avgCitation.toFixed(1)}%</div>
-      <div class="metric-label">Avg Citation Rate</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-value" style="color:var(--chart-5)">${avgMention.toFixed(1)}%</div>
-      <div class="metric-label">Avg Mention Rate</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-value" style="color:${sentColor}">${sentLabel}</div>
-      <div class="metric-label">Avg Sentiment (${avgSent.toFixed(2)})</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-value" style="color:${posColor}">${posLabel}</div>
-      <div class="metric-label">Avg Position${avgPos >= 0 ? ` (${avgPos.toFixed(0)}%)` : ""}</div>
+  container.innerHTML = `
+    <svg viewBox="0 0 100 100">
+      <circle cx="50" cy="50" r="42" fill="none" stroke="#252840" stroke-width="6"/>
+      <circle cx="50" cy="50" r="42" fill="none" stroke="${color}" stroke-width="6"
+        stroke-dasharray="${circumference}" stroke-dashoffset="${offset}" stroke-linecap="round"/>
+    </svg>
+    <div class="score-value">
+      <span style="color:${color}">${score.toFixed(0)}</span>
+      <span class="score-label">AEO Score</span>
     </div>
   `;
 }
 
-function avg(arr) {
-  if (!arr.length) return 0;
-  return arr.reduce((a, b) => a + b, 0) / arr.length;
+// ===== KPI Cards =====
+function renderKPICards(results, globalAEO) {
+  const src = results;
+  const avgCite = avg(src.map(r => r.citation_rate));
+  const avgMention = avg(src.map(r => r.mention_rate));
+  const avgRec = avg(src.map(r => r.recommendation_rate));
+  const avgSent = avg(src.map(r => r.avg_sentiment));
+  const avgPos = avg(src.map(r => r.avg_position).filter(p => p >= 0));
+  const avgDepth = avg(src.map(r => r.avg_depth));
+
+  const sentText = sentLabel(avgSent);
+  const sentColors = { positive: "var(--green)", neutral: "var(--muted)", negative: "var(--red)" };
+  const posText = avgPos >= 0 ? posLabel(avgPos) : "N/A";
+  const posColors = { top: "var(--green)", middle: "var(--yellow)", bottom: "var(--red)", none: "var(--muted)" };
+
+  summaryMetrics.innerHTML = `
+    <div class="kpi-card accent">
+      <div class="kpi-value" style="color:var(--accent)">${avgCite.toFixed(1)}%</div>
+      <div class="kpi-label">Citation Rate</div>
+      <div class="kpi-sub">URL 인용 비율</div>
+    </div>
+    <div class="kpi-card green">
+      <div class="kpi-value" style="color:var(--green)">${avgMention.toFixed(1)}%</div>
+      <div class="kpi-label">Mention Rate</div>
+      <div class="kpi-sub">브랜드 언급 비율</div>
+    </div>
+    <div class="kpi-card pink">
+      <div class="kpi-value" style="color:var(--pink)">${avgRec.toFixed(1)}%</div>
+      <div class="kpi-label">Recommendation</div>
+      <div class="kpi-sub">추천 비율</div>
+    </div>
+    <div class="kpi-card blue">
+      <div class="kpi-value" style="color:${sentColors[sentText]}">${sentText.charAt(0).toUpperCase() + sentText.slice(1)}</div>
+      <div class="kpi-label">Sentiment</div>
+      <div class="kpi-sub">감성 점수 ${avgSent.toFixed(2)}</div>
+    </div>
+    <div class="kpi-card yellow">
+      <div class="kpi-value" style="color:${posColors[posText.toLowerCase()] || "var(--muted)"}">${posText}</div>
+      <div class="kpi-label">Position</div>
+      <div class="kpi-sub">${avgPos >= 0 ? `상위 ${avgPos.toFixed(0)}%` : "데이터 없음"}</div>
+    </div>
+    <div class="kpi-card orange">
+      <div class="kpi-value" style="color:var(--orange)">${avgDepth.toFixed(1)}</div>
+      <div class="kpi-label">Citation Depth</div>
+      <div class="kpi-sub">인용 깊이 (0~4)</div>
+    </div>
+  `;
 }
 
-function sentimentLabel(score) {
-  if (score > 0.2) return "positive";
-  if (score < -0.2) return "negative";
-  return "neutral";
-}
-
-function positionLabel(pct) {
-  if (pct < 0) return "none";
-  if (pct <= 33) return "top";
-  if (pct <= 66) return "middle";
-  return "bottom";
-}
-
-// ===== 1. Main Bar Chart: Citation Rate per LLM =====
+// ===== Citation Rate Chart =====
 function renderCitationChart(results) {
+  destroyChart("citation");
   const ctx = document.getElementById("citation-chart").getContext("2d");
-  if (citationChart) citationChart.destroy();
+  const labels = results.map(r => r.mode === "mock" ? `${r.llm} (Mock)` : r.llm);
+  const colors = results.map(r => LLM_COLORS[r.llm] || "#6c63ff");
 
-  const labels = results.map((r) => r.llm);
-  const rates = results.map((r) => r.citation_rate);
-  const colors = labels.map((l) => LLM_COLORS[l] || "#6c63ff");
-
-  citationChart = new Chart(ctx, {
+  charts.citation = new Chart(ctx, {
     type: "bar",
     data: {
-      labels: labels.map((l, i) => {
-        const mode = results[i].mode;
-        return mode === "mock" ? `${l} (Mock)` : l;
-      }),
+      labels,
       datasets: [
-        {
-          label: "Citation Rate (%)",
-          data: rates,
-          backgroundColor: colors,
-          borderColor: colors,
-          borderWidth: 2,
-          borderRadius: 8,
-          borderSkipped: false,
-        },
+        { label: "Citation Rate", data: results.map(r => r.citation_rate), backgroundColor: colors, borderRadius: 6, borderSkipped: false },
+        { label: "Mention Rate", data: results.map(r => r.mention_rate), backgroundColor: colors.map(c => c + "66"), borderRadius: 6, borderSkipped: false },
       ],
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: true,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: (ctx) => `Citation Rate: ${ctx.parsed.y}%`,
-          },
-        },
-      },
+      ...CHART_DEFAULTS,
+      plugins: { legend: { labels: { color: "#8b8fa8", font: { size: 11 } } } },
       scales: {
-        y: {
-          beginAtZero: true,
-          max: 100,
-          grid: { color: "rgba(255,255,255,0.05)" },
-          ticks: {
-            color: "#8b8fa8",
-            callback: (v) => v + "%",
-          },
-        },
-        x: {
-          grid: { display: false },
-          ticks: { color: "#e4e6f0", font: { weight: "bold", size: 13 } },
-        },
+        ...CHART_DEFAULTS.scales,
+        y: { ...CHART_DEFAULTS.scales.y, max: 100, ticks: { ...CHART_DEFAULTS.scales.y.ticks, callback: v => v + "%" } },
       },
     },
   });
 }
 
-// ===== 2. Sentiment Chart =====
+// ===== AEO Score Chart =====
+function renderAEOScoreChart(results) {
+  destroyChart("aeoScore");
+  const ctx = document.getElementById("aeo-score-chart").getContext("2d");
+  const labels = results.map(r => r.llm);
+  const scores = results.map(r => r.aeo_score);
+  const colors = scores.map(s => scoreColor(s));
+
+  charts.aeoScore = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [{ label: "AEO Score", data: scores, backgroundColor: colors, borderRadius: 6, borderSkipped: false }],
+    },
+    options: {
+      ...CHART_DEFAULTS,
+      indexAxis: "y",
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { beginAtZero: true, max: 100, grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#8b8fa8" } },
+        y: { grid: { display: false }, ticks: { color: "#e4e6f0", font: { weight: "bold", size: 12 } } },
+      },
+    },
+  });
+}
+
+// ===== Sentiment Chart =====
 function renderSentimentChart(results) {
+  destroyChart("sentiment");
   const ctx = document.getElementById("sentiment-chart").getContext("2d");
-  if (sentimentChart) sentimentChart.destroy();
 
-  const labels = results.map((r) => r.llm);
-  const posData = results.map((r) => r.sentiment_dist?.positive || 0);
-  const neuData = results.map((r) => r.sentiment_dist?.neutral || 0);
-  const negData = results.map((r) => r.sentiment_dist?.negative || 0);
-
-  sentimentChart = new Chart(ctx, {
+  charts.sentiment = new Chart(ctx, {
     type: "bar",
     data: {
-      labels,
+      labels: results.map(r => r.llm),
       datasets: [
-        { label: "Positive", data: posData, backgroundColor: "#34d399", borderRadius: 4 },
-        { label: "Neutral", data: neuData, backgroundColor: "#8b8fa8", borderRadius: 4 },
-        { label: "Negative", data: negData, backgroundColor: "#f87171", borderRadius: 4 },
+        { label: "Positive", data: results.map(r => r.sentiment_dist?.positive || 0), backgroundColor: "#34d399", borderRadius: 4 },
+        { label: "Neutral", data: results.map(r => r.sentiment_dist?.neutral || 0), backgroundColor: "#555870", borderRadius: 4 },
+        { label: "Negative", data: results.map(r => r.sentiment_dist?.negative || 0), backgroundColor: "#f87171", borderRadius: 4 },
       ],
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: true,
-      plugins: { legend: { labels: { color: "#8b8fa8", font: { size: 11 } } } },
+      ...CHART_DEFAULTS,
       scales: {
         x: { stacked: true, grid: { display: false }, ticks: { color: "#e4e6f0" } },
-        y: { stacked: true, beginAtZero: true, grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#8b8fa8", stepSize: 1 } },
+        y: { stacked: true, beginAtZero: true, grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#8b8fa8", stepSize: 1 } },
       },
     },
   });
 }
 
-// ===== 3. Position Chart =====
+// ===== Position Chart =====
 function renderPositionChart(results) {
+  destroyChart("position");
   const ctx = document.getElementById("position-chart").getContext("2d");
-  if (positionChart) positionChart.destroy();
 
-  const labels = results.map((r) => r.llm);
-  const topData = results.map((r) => r.position_dist?.top || 0);
-  const midData = results.map((r) => r.position_dist?.middle || 0);
-  const botData = results.map((r) => r.position_dist?.bottom || 0);
-  const noneData = results.map((r) => r.position_dist?.none || 0);
-
-  positionChart = new Chart(ctx, {
+  charts.position = new Chart(ctx, {
     type: "bar",
     data: {
-      labels,
+      labels: results.map(r => r.llm),
       datasets: [
-        { label: "Top (상단)", data: topData, backgroundColor: "#34d399", borderRadius: 4 },
-        { label: "Middle (중간)", data: midData, backgroundColor: "#facc15", borderRadius: 4 },
-        { label: "Bottom (하단)", data: botData, backgroundColor: "#f87171", borderRadius: 4 },
-        { label: "None (없음)", data: noneData, backgroundColor: "#3a3d52", borderRadius: 4 },
+        { label: "Top (상단)", data: results.map(r => r.position_dist?.top || 0), backgroundColor: "#34d399", borderRadius: 4 },
+        { label: "Middle (중간)", data: results.map(r => r.position_dist?.middle || 0), backgroundColor: "#facc15", borderRadius: 4 },
+        { label: "Bottom (하단)", data: results.map(r => r.position_dist?.bottom || 0), backgroundColor: "#f87171", borderRadius: 4 },
+        { label: "None (없음)", data: results.map(r => r.position_dist?.none || 0), backgroundColor: "#2a2d42", borderRadius: 4 },
       ],
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: true,
-      plugins: { legend: { labels: { color: "#8b8fa8", font: { size: 11 } } } },
+      ...CHART_DEFAULTS,
       scales: {
         x: { stacked: true, grid: { display: false }, ticks: { color: "#e4e6f0" } },
-        y: { stacked: true, beginAtZero: true, grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#8b8fa8", stepSize: 1 } },
+        y: { stacked: true, beginAtZero: true, grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#8b8fa8", stepSize: 1 } },
       },
     },
   });
 }
 
-// ===== 4. Competitor Comparison Chart =====
-function renderCompetitorChart(results, targetDomain) {
-  const section = document.getElementById("competitor-section");
-  const hasCompetitors = results.some((r) => Object.keys(r.competitor_rates || {}).length > 0);
+// ===== Category Performance Chart =====
+function renderCategoryChart(results) {
+  destroyChart("category");
+  const ctx = document.getElementById("category-chart").getContext("2d");
 
-  if (!hasCompetitors) {
-    section.hidden = true;
+  const allCats = new Map();
+  results.forEach(r => {
+    Object.entries(r.category_performance || {}).forEach(([key, val]) => {
+      if (!allCats.has(key)) allCats.set(key, val.label);
+    });
+  });
+
+  if (allCats.size === 0) {
+    ctx.canvas.parentElement.hidden = true;
     return;
   }
-  section.hidden = false;
+  ctx.canvas.parentElement.hidden = false;
+
+  const catKeys = [...allCats.keys()];
+  const catLabels = catKeys.map(k => allCats.get(k));
+  const colors = results.map(r => LLM_COLORS[r.llm] || "#6c63ff");
+
+  const datasets = results.map((r, i) => ({
+    label: r.llm,
+    data: catKeys.map(k => r.category_performance?.[k]?.citation_rate || 0),
+    backgroundColor: colors[i],
+    borderRadius: 4,
+  }));
+
+  charts.category = new Chart(ctx, {
+    type: "bar",
+    data: { labels: catLabels, datasets },
+    options: {
+      ...CHART_DEFAULTS,
+      scales: {
+        x: { grid: { display: false }, ticks: { color: "#e4e6f0", font: { size: 11 } } },
+        y: { beginAtZero: true, max: 100, grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#8b8fa8", callback: v => v + "%" } },
+      },
+    },
+  });
+}
+
+// ===== Competitor Chart =====
+function renderCompetitorChart(results, targetDomain) {
+  destroyChart("competitor");
+  const row = document.getElementById("competitive-row");
+  const hasComp = results.some(r => Object.keys(r.competitor_rates || {}).length > 0);
+  if (!hasComp) { row.hidden = true; return; }
+  row.hidden = false;
 
   const ctx = document.getElementById("competitor-chart").getContext("2d");
-  if (competitorChart) competitorChart.destroy();
-
-  // Gather all domains (target + competitors)
   const competitors = new Set();
-  results.forEach((r) => {
-    Object.keys(r.competitor_rates || {}).forEach((c) => competitors.add(c));
-  });
+  results.forEach(r => Object.keys(r.competitor_rates || {}).forEach(c => competitors.add(c)));
 
   const allDomains = [targetDomain, ...competitors];
   const palette = ["#6c63ff", "#f472b6", "#facc15", "#60a5fa", "#fb923c", "#a78bfa"];
 
   const datasets = allDomains.map((domain, i) => ({
     label: domain,
-    data: results.map((r) => {
-      if (domain === targetDomain) return r.citation_rate;
-      return r.competitor_rates?.[domain] || 0;
-    }),
+    data: results.map(r => domain === targetDomain ? r.citation_rate : (r.competitor_rates?.[domain] || 0)),
     backgroundColor: palette[i % palette.length],
     borderRadius: 4,
   }));
 
-  competitorChart = new Chart(ctx, {
+  charts.competitor = new Chart(ctx, {
     type: "bar",
-    data: {
-      labels: results.map((r) => r.llm),
-      datasets,
-    },
+    data: { labels: results.map(r => r.llm), datasets },
     options: {
-      responsive: true,
-      maintainAspectRatio: true,
-      plugins: { legend: { labels: { color: "#8b8fa8", font: { size: 11 } } } },
+      ...CHART_DEFAULTS,
       scales: {
         x: { grid: { display: false }, ticks: { color: "#e4e6f0" } },
-        y: { beginAtZero: true, max: 100, grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#8b8fa8", callback: (v) => v + "%" } },
+        y: { beginAtZero: true, max: 100, grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#8b8fa8", callback: v => v + "%" } },
       },
     },
   });
 }
 
-// ===== 5. LLM Detail Cards with Query Details =====
+// ===== Share of Voice Chart =====
+function renderSOVChart(results) {
+  destroyChart("sov");
+  const row = document.getElementById("competitive-row");
+  if (row.hidden) return;
+
+  const ctx = document.getElementById("sov-chart").getContext("2d");
+  const sovTotals = {};
+  results.forEach(r => {
+    Object.entries(r.share_of_voice || {}).forEach(([brand, share]) => {
+      sovTotals[brand] = (sovTotals[brand] || 0) + share;
+    });
+  });
+
+  const brands = Object.keys(sovTotals);
+  if (brands.length === 0) return;
+
+  const total = Object.values(sovTotals).reduce((a, b) => a + b, 0);
+  const normalized = brands.map(b => total > 0 ? Math.round(sovTotals[b] / total * 100) : 0);
+  const palette = ["#6c63ff", "#f472b6", "#facc15", "#60a5fa", "#fb923c", "#a78bfa"];
+
+  charts.sov = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      labels: brands,
+      datasets: [{ data: normalized, backgroundColor: palette.slice(0, brands.length), borderWidth: 0 }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: { position: "bottom", labels: { color: "#8b8fa8", font: { size: 11 }, padding: 12 } },
+        tooltip: { callbacks: { label: ctx => `${ctx.label}: ${ctx.parsed}%` } },
+      },
+    },
+  });
+}
+
+// ===== Citation Depth Chart =====
+function renderDepthChart(results) {
+  destroyChart("depth");
+  const ctx = document.getElementById("depth-chart").getContext("2d");
+
+  charts.depth = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: results.map(r => r.llm),
+      datasets: [
+        { label: "Linked (링크포함)", data: results.map(r => r.depth_dist?.linked || 0), backgroundColor: "#6c63ff", borderRadius: 4 },
+        { label: "Detailed (상세)", data: results.map(r => r.depth_dist?.detailed || 0), backgroundColor: "#34d399", borderRadius: 4 },
+        { label: "Surface (표면)", data: results.map(r => r.depth_dist?.surface || 0), backgroundColor: "#facc15", borderRadius: 4 },
+        { label: "None (없음)", data: results.map(r => r.depth_dist?.none || 0), backgroundColor: "#2a2d42", borderRadius: 4 },
+      ],
+    },
+    options: {
+      ...CHART_DEFAULTS,
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { color: "#e4e6f0" } },
+        y: { stacked: true, beginAtZero: true, grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#8b8fa8", stepSize: 1 } },
+      },
+    },
+  });
+}
+
+// ===== Top Domains Chart =====
+function renderDomainChart(results) {
+  destroyChart("domain");
+  const domainTotals = {};
+  results.forEach(r => {
+    for (const [d, c] of Object.entries(r.top_domains)) domainTotals[d] = (domainTotals[d] || 0) + c;
+  });
+
+  const sorted = Object.entries(domainTotals).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  if (sorted.length === 0) return;
+
+  const ctx = document.getElementById("domain-chart").getContext("2d");
+  const palette = ["#6c63ff", "#f472b6", "#34d399", "#facc15", "#60a5fa", "#fb923c", "#a78bfa", "#e879f9"];
+
+  charts.domain = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: sorted.map(([d]) => d),
+      datasets: [{ label: "Count", data: sorted.map(([, c]) => c), backgroundColor: sorted.map((_, i) => palette[i]), borderRadius: 5, borderSkipped: false }],
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { beginAtZero: true, grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#8b8fa8" } },
+        y: { grid: { display: false }, ticks: { color: "#e4e6f0", font: { size: 11 } } },
+      },
+    },
+  });
+}
+
+// ===== LLM Detail Cards =====
 function renderLLMCards(results, targetDomain) {
   cardsContainer.innerHTML = "";
 
-  results.forEach((r) => {
+  results.forEach(r => {
     const color = LLM_COLORS[r.llm] || "#6c63ff";
     const modeClass = r.mode === "live" ? "live" : "mock";
     const modeLabel = r.mode === "live" ? "LIVE" : "MOCK";
     const details = r.query_details || [];
 
-    // Build query detail rows
     let detailsHtml = "";
     details.forEach((d, i) => {
-      const citedClass = d.cited ? "cited-yes" : "cited-no";
-      const citedLabel = d.cited ? "CITED" : "NOT CITED";
-      const errorHtml = d.error
-        ? `<div class="detail-error">Error: ${escapeHtml(d.error)}</div>`
-        : "";
+      const citedCls = d.cited ? "cited-yes" : "cited-no";
+      const citedLbl = d.cited ? "CITED" : "NOT CITED";
+      const errHtml = d.error ? `<div class="detail-error">Error: ${esc(d.error)}</div>` : "";
 
-      // Highlight target domain URLs in the response
-      let responseHtml = escapeHtml(d.response);
+      let respHtml = esc(d.response);
       if (targetDomain) {
-        const urlPattern = new RegExp(
-          `(https?://[^\\s)\\]}>,"']*${targetDomain.replace(/\./g, "\\.")}[^\\s)\\]}>,"']*)`,
-          "gi"
-        );
-        responseHtml = responseHtml.replace(
-          urlPattern,
-          '<span class="highlight-url">$1</span>'
-        );
+        const pat = new RegExp(`(https?://[^\\s)\\]}>,"']*${targetDomain.replace(/\./g, "\\.")}[^\\s)\\]}>,"']*)`, "gi");
+        respHtml = respHtml.replace(pat, '<span class="highlight-url">$1</span>');
       }
 
-      // Extracted URLs list
       let urlsHtml = "";
-      if (d.urls && d.urls.length > 0) {
-        const urlItems = d.urls
-          .map((u) => {
-            const isTarget = targetDomain && u.includes(targetDomain);
-            return `<li class="${isTarget ? "target-url" : ""}">${escapeHtml(u)}</li>`;
-          })
-          .join("");
-        urlsHtml = `<div class="detail-urls"><strong>Extracted URLs (${d.urls.length}):</strong><ul>${urlItems}</ul></div>`;
+      if (d.urls?.length) {
+        const items = d.urls.map(u => {
+          const isTgt = targetDomain && u.includes(targetDomain);
+          return `<li class="${isTgt ? "target-url" : ""}">${esc(u)}</li>`;
+        }).join("");
+        urlsHtml = `<div class="detail-urls"><strong>URLs (${d.urls.length}):</strong><ul>${items}</ul></div>`;
       }
+
+      const recBadge = d.recommendation?.recommended
+        ? '<span class="rec-badge yes">RECOMMENDED</span>'
+        : '';
+      const depthBadge = d.citation_depth
+        ? `<span class="depth-badge ${d.citation_depth.depth}">${d.citation_depth.depth}</span>`
+        : '';
+      const catBadge = d.category_label
+        ? `<span class="category-badge">${d.category_label}</span>`
+        : '';
 
       detailsHtml += `
         <div class="query-detail">
           <div class="detail-header">
             <span class="detail-index">Q${i + 1}</span>
-            <span class="cited-badge ${citedClass}">${citedLabel}</span>
+            <span class="cited-badge ${citedCls}">${citedLbl}</span>
             ${d.brand_mentioned ? '<span class="cited-badge cited-yes">MENTIONED</span>' : ""}
+            ${recBadge}
             ${d.sentiment ? `<span class="sentiment-badge ${d.sentiment.label}">${d.sentiment.label}</span>` : ""}
             ${d.position ? `<span class="position-badge ${d.position.section}">${d.position.section}</span>` : ""}
+            ${depthBadge}
+            ${catBadge}
           </div>
-          <div class="detail-query"><strong>Query:</strong> ${escapeHtml(d.query)}</div>
-          ${errorHtml}
-          <div class="detail-response"><strong>Response:</strong><div class="response-text">${responseHtml}</div></div>
+          <div class="detail-query"><strong>Query:</strong> ${esc(d.query)}</div>
+          ${errHtml}
+          <div class="detail-response"><strong>Response:</strong><div class="response-text">${respHtml}</div></div>
           ${urlsHtml}
         </div>
       `;
     });
 
     const card = document.createElement("div");
-    card.className = "llm-card full-width";
+    card.className = "llm-card";
     card.innerHTML = `
       <div class="card-header">
         <span class="llm-name" style="color:${color}">
@@ -513,78 +610,25 @@ function renderLLMCards(results, targetDomain) {
         </span>
         <span class="rate-badge" style="color:${color}">${r.citation_rate}%</span>
       </div>
-      <div class="stat-row"><span>Total Queries</span><span>${r.total_queries}</span></div>
-      <div class="stat-row"><span>Successful</span><span>${r.successful_queries}</span></div>
+      <div class="stat-row"><span>AEO Score</span><span style="color:${scoreColor(r.aeo_score)}">${r.aeo_score}</span></div>
       <div class="stat-row"><span>Citation Rate</span><span>${r.citation_rate}%</span></div>
       <div class="stat-row"><span>Mention Rate</span><span>${r.mention_rate}%</span></div>
-      <div class="stat-row"><span>Sentiment</span><span><span class="sentiment-badge ${sentimentLabel(r.avg_sentiment)}">${sentimentLabel(r.avg_sentiment)} (${r.avg_sentiment})</span></span></div>
-      <div class="stat-row"><span>Avg Position</span><span><span class="position-badge ${positionLabel(r.avg_position)}">${positionLabel(r.avg_position)}${r.avg_position >= 0 ? ` (${r.avg_position}%)` : ""}</span></span></div>
-      ${r.errors > 0 ? `<div class="stat-row"><span style="color:#f87171">Errors</span><span style="color:#f87171">${r.errors}</span></div>` : ""}
+      <div class="stat-row"><span>Recommendation</span><span>${r.recommendation_rate}%</span></div>
+      <div class="stat-row"><span>Sentiment</span><span><span class="sentiment-badge ${sentLabel(r.avg_sentiment)}">${sentLabel(r.avg_sentiment)} (${r.avg_sentiment})</span></span></div>
+      <div class="stat-row"><span>Position</span><span><span class="position-badge ${posLabel(r.avg_position)}">${posLabel(r.avg_position)}${r.avg_position >= 0 ? ` (${r.avg_position}%)` : ""}</span></span></div>
+      <div class="stat-row"><span>Depth</span><span>${r.avg_depth.toFixed(1)} / 4</span></div>
+      <div class="stat-row"><span>Queries</span><span>${r.successful_queries} / ${r.total_queries}</span></div>
+      ${r.errors > 0 ? `<div class="stat-row"><span style="color:var(--red)">Errors</span><span style="color:var(--red)">${r.errors}</span></div>` : ""}
       <div class="bar-track">
-        <div class="bar-fill" style="width:${r.citation_rate}%;background:${color}"></div>
+        <div class="bar-fill" style="width:${r.aeo_score}%;background:${scoreColor(r.aeo_score)}"></div>
       </div>
       ${details.length > 0 ? `
-        <button class="toggle-details" onclick="this.parentElement.querySelector('.query-details').classList.toggle('open'); this.textContent = this.textContent.includes('+') ? '- Hide Details' : '+ Show Details'">
-          + Show Details
+        <button class="toggle-details" onclick="this.parentElement.querySelector('.query-details').classList.toggle('open'); this.textContent = this.textContent.includes('+') ? '- 상세 숨기기' : '+ 상세 보기'">
+          + 상세 보기
         </button>
         <div class="query-details">${detailsHtml}</div>
       ` : ""}
     `;
     cardsContainer.appendChild(card);
-  });
-}
-
-// ===== 3. Top Domains Horizontal Bar Chart =====
-function renderDomainChart(results) {
-  const domainTotals = {};
-  results.forEach((r) => {
-    for (const [domain, count] of Object.entries(r.top_domains)) {
-      domainTotals[domain] = (domainTotals[domain] || 0) + count;
-    }
-  });
-
-  const sorted = Object.entries(domainTotals)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8);
-
-  const ctx = document.getElementById("domain-chart").getContext("2d");
-  if (domainChart) domainChart.destroy();
-
-  const palette = [
-    "#6c63ff", "#f472b6", "#34d399", "#facc15",
-    "#60a5fa", "#fb923c", "#a78bfa", "#e879f9",
-  ];
-
-  domainChart = new Chart(ctx, {
-    type: "bar",
-    data: {
-      labels: sorted.map(([d]) => d),
-      datasets: [
-        {
-          label: "Citation Count",
-          data: sorted.map(([, c]) => c),
-          backgroundColor: sorted.map((_, i) => palette[i % palette.length]),
-          borderRadius: 6,
-          borderSkipped: false,
-        },
-      ],
-    },
-    options: {
-      indexAxis: "y",
-      responsive: true,
-      maintainAspectRatio: true,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: {
-          beginAtZero: true,
-          grid: { color: "rgba(255,255,255,0.05)" },
-          ticks: { color: "#8b8fa8" },
-        },
-        y: {
-          grid: { display: false },
-          ticks: { color: "#e4e6f0", font: { size: 12 } },
-        },
-      },
-    },
   });
 }

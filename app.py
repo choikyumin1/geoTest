@@ -1,13 +1,13 @@
 """
-FastAPI backend for citation rate analysis.
+FastAPI backend for AEO (Answer Engine Optimization) analysis.
 
 Queries real LLM APIs (ChatGPT, Perplexity, Claude, Gemini) to measure
-how often each LLM cites a target URL/domain. Falls back to mock data
-when API keys are not configured.
+citation rate, recommendation rate, sentiment, position, citation depth,
+and share of voice. Falls back to mock data when API keys are missing.
 """
 
 import asyncio
-import os
+import random
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
@@ -19,10 +19,11 @@ from pydantic import BaseModel
 from extract_urls import (
     extract_urls,
     count_domains,
-    group_urls_by_domain,
-    extract_brand_mentions,
     analyze_sentiment,
     analyze_position,
+    detect_recommendation,
+    analyze_citation_depth,
+    calculate_share_of_voice,
 )
 from llm_clients import (
     BaseLLMClient,
@@ -35,11 +36,11 @@ from llm_clients import (
 
 load_dotenv()
 
-app = FastAPI(title="Citation Rate Analyzer")
+app = FastAPI(title="AEO Dashboard")
 
 
 # ---------------------------------------------------------------------------
-# Core analysis logic
+# Core analysis
 # ---------------------------------------------------------------------------
 
 async def run_single_query(
@@ -47,21 +48,16 @@ async def run_single_query(
     prompt: str,
     target_domain: str,
 ) -> dict:
-    """Run one query against an LLM and check if the target domain is cited."""
     try:
         resp = await client.query(prompt)
     except Exception as e:
-        return {"error": str(e), "cited": False, "urls": [], "query": prompt, "response": ""}
+        return {"error": str(e), "cited": False, "urls": [], "query": prompt, "response": "", "response_text": ""}
 
-    # Combine text-extracted URLs and structured citations
     text_urls = extract_urls(resp.text)
     all_urls = list(set(text_urls + resp.citations))
-
     cited = any(target_domain in url for url in all_urls)
 
-    # For mock clients: inject target domain with probability
     if isinstance(client, MockLLMClient) and not cited:
-        import random
         if random.random() < client._citation_prob:
             fake_url = f"https://{target_domain}/page/{random.randint(1,99)}"
             all_urls.append(fake_url)
@@ -85,56 +81,89 @@ async def analyze_llm(
     custom_prompts: list[str] | None = None,
     competitors: list[str] | None = None,
 ) -> dict:
-    """Run multiple queries against one LLM and aggregate citation stats."""
+    comp_brands = []
+    for c in (competitors or []):
+        comp_brands.append(domain_to_brand(c))
+
     if custom_prompts:
-        queries = custom_prompts
-        num_queries = len(queries)
+        query_items = [{"prompt": p, "category": "custom", "category_label": "직접 작성"} for p in custom_prompts]
+        num_queries = len(query_items)
     else:
-        queries = generate_queries(target_domain, brand, num_queries)
+        query_items = generate_queries(target_domain, brand, num_queries)
 
     is_mock = isinstance(client, MockLLMClient)
 
     if is_mock:
-        tasks = [run_single_query(client, q, target_domain) for q in queries]
+        tasks = [run_single_query(client, q["prompt"], target_domain) for q in query_items]
         results = await asyncio.gather(*tasks)
     else:
         results = []
-        for q in queries:
-            r = await run_single_query(client, q, target_domain)
+        for q in query_items:
+            r = await run_single_query(client, q["prompt"], target_domain)
             results.append(r)
             await asyncio.sleep(4)
 
     cited_count = 0
     mentioned_count = 0
+    recommended_count = 0
     all_urls: list[str] = []
     errors = 0
     query_details: list[dict] = []
     sentiments: list[dict] = []
     positions: list[dict] = []
+    depths: list[dict] = []
     competitor_citations: dict[str, int] = {c: 0 for c in (competitors or [])}
+    category_stats: dict[str, dict] = {}
+    sov_accumulator: dict[str, int] = {brand: 0}
+    for cb in comp_brands:
+        sov_accumulator[cb] = 0
 
-    for r in results:
+    for i, r in enumerate(results):
         resp_text = r.get("response_text", "") or r.get("response", "")
         urls = r.get("urls", [])
+        q_info = query_items[i]
+        cat = q_info["category"]
+        cat_label = q_info["category_label"]
 
-        # Sentiment analysis
         sent = analyze_sentiment(resp_text, brand)
         sentiments.append(sent)
 
-        # Position analysis
         pos = analyze_position(resp_text, target_domain, brand)
         positions.append(pos)
 
-        # Brand mention (text, not URL)
+        rec = detect_recommendation(resp_text, brand)
+
+        depth = analyze_citation_depth(resp_text, target_domain, brand)
+        depths.append(depth)
+
         brand_mentioned = brand.lower() in resp_text.lower()
         if brand_mentioned:
             mentioned_count += 1
 
-        # Competitor citation check
+        if rec["recommended"]:
+            recommended_count += 1
+
+        # Share of voice accumulation
+        if comp_brands:
+            sov = calculate_share_of_voice(resp_text, brand, comp_brands)
+            for b, cnt in sov["mentions"].items():
+                sov_accumulator[b] = sov_accumulator.get(b, 0) + cnt
+
         for comp in (competitors or []):
             comp_domain = comp.lower().replace("www.", "")
             if any(comp_domain in u.lower() for u in urls) or comp.lower() in resp_text.lower():
                 competitor_citations[comp] += 1
+
+        # Category stats
+        if cat not in category_stats:
+            category_stats[cat] = {"label": cat_label, "total": 0, "cited": 0, "mentioned": 0, "recommended": 0}
+        category_stats[cat]["total"] += 1
+        if r.get("cited", False):
+            category_stats[cat]["cited"] += 1
+        if brand_mentioned:
+            category_stats[cat]["mentioned"] += 1
+        if rec["recommended"]:
+            category_stats[cat]["recommended"] += 1
 
         detail = {
             "query": r.get("query", ""),
@@ -144,7 +173,11 @@ async def analyze_llm(
             "error": r.get("error"),
             "sentiment": sent,
             "position": pos,
+            "recommendation": rec,
+            "citation_depth": depth,
             "brand_mentioned": brand_mentioned,
+            "category": cat,
+            "category_label": cat_label,
         }
         query_details.append(detail)
 
@@ -158,10 +191,9 @@ async def analyze_llm(
     successful = num_queries - errors
     citation_rate = (cited_count / successful * 100) if successful > 0 else 0
     mention_rate = (mentioned_count / successful * 100) if successful > 0 else 0
+    recommendation_rate = (recommended_count / successful * 100) if successful > 0 else 0
     domain_counts = dict(count_domains(all_urls))
 
-    # Aggregate sentiment
-    valid_sentiments = [s for s in sentiments if s["label"] != "neutral" or s["positive"] + s["negative"] > 0]
     avg_sentiment = round(
         sum(s["score"] for s in sentiments) / len(sentiments), 2
     ) if sentiments else 0
@@ -169,7 +201,6 @@ async def analyze_llm(
     for s in sentiments:
         sentiment_dist[s["label"]] += 1
 
-    # Aggregate position
     valid_positions = [p for p in positions if p["section"] != "none"]
     avg_position = round(
         sum(p["position_pct"] for p in valid_positions) / len(valid_positions), 1
@@ -178,12 +209,49 @@ async def analyze_llm(
     for p in positions:
         position_dist[p["section"]] += 1
 
-    # Competitor rates
+    depth_dist = {"linked": 0, "detailed": 0, "surface": 0, "none": 0}
+    for d in depths:
+        depth_dist[d["depth"]] += 1
+    avg_depth = round(
+        sum(d["level"] for d in depths) / len(depths), 2
+    ) if depths else 0
+
     comp_rates = {}
     for comp, count in competitor_citations.items():
         comp_rates[comp] = round((count / successful * 100), 1) if successful > 0 else 0
 
-    is_mock = isinstance(client, MockLLMClient)
+    # Category performance summary
+    category_performance = {}
+    for cat, stats in category_stats.items():
+        t = stats["total"]
+        category_performance[cat] = {
+            "label": stats["label"],
+            "total": t,
+            "citation_rate": round(stats["cited"] / t * 100, 1) if t > 0 else 0,
+            "mention_rate": round(stats["mentioned"] / t * 100, 1) if t > 0 else 0,
+            "recommendation_rate": round(stats["recommended"] / t * 100, 1) if t > 0 else 0,
+        }
+
+    # Share of voice
+    sov_total = sum(sov_accumulator.values())
+    share_of_voice = {}
+    for b, cnt in sov_accumulator.items():
+        share_of_voice[b] = round(cnt / sov_total * 100, 1) if sov_total > 0 else 0
+
+    # AEO composite score (0-100)
+    sent_norm = (avg_sentiment + 1) / 2 * 100  # -1..1 → 0..100
+    if avg_position >= 0:
+        pos_norm = max(0, 100 - avg_position)  # 0% position = 100 score
+    else:
+        pos_norm = 0
+    aeo_score = round(
+        citation_rate * 0.25
+        + mention_rate * 0.20
+        + recommendation_rate * 0.20
+        + sent_norm * 0.15
+        + pos_norm * 0.20,
+        1,
+    )
 
     return {
         "llm": client.name,
@@ -194,11 +262,17 @@ async def analyze_llm(
         "cited_count": cited_count,
         "citation_rate": round(citation_rate, 1),
         "mention_rate": round(mention_rate, 1),
+        "recommendation_rate": round(recommendation_rate, 1),
         "avg_sentiment": avg_sentiment,
         "sentiment_dist": sentiment_dist,
         "avg_position": avg_position,
         "position_dist": position_dist,
+        "depth_dist": depth_dist,
+        "avg_depth": avg_depth,
         "competitor_rates": comp_rates,
+        "share_of_voice": share_of_voice,
+        "category_performance": category_performance,
+        "aeo_score": aeo_score,
         "top_domains": dict(
             sorted(domain_counts.items(), key=lambda x: -x[1])[:10]
         ),
@@ -208,7 +282,7 @@ async def analyze_llm(
 
 
 # ---------------------------------------------------------------------------
-# API endpoints
+# API
 # ---------------------------------------------------------------------------
 
 class AnalyzeRequest(BaseModel):
@@ -220,30 +294,33 @@ class AnalyzeRequest(BaseModel):
 
 @app.get("/api/status")
 async def llm_status():
-    """Return each LLM's connection status (live / mock)."""
     return get_status()
 
 
 @app.post("/api/analyze")
 async def analyze_citation(req: AnalyzeRequest):
-    """Run citation analysis across all available LLMs."""
     parsed = urlparse(req.url if "://" in req.url else f"https://{req.url}")
     target_domain = parsed.netloc or parsed.path.split("/")[0]
     brand = domain_to_brand(target_domain)
 
     clients = get_active_clients(use_mock_fallback=True)
-
     tasks = [
         analyze_llm(c, target_domain, brand, req.num_queries, req.custom_prompts, req.competitors)
         for c in clients
     ]
     results = await asyncio.gather(*tasks)
+    sorted_results = sorted(results, key=lambda r: -r["citation_rate"])
+
+    # Global AEO score
+    aeo_scores = [r["aeo_score"] for r in sorted_results]
+    global_aeo = round(sum(aeo_scores) / len(aeo_scores), 1) if aeo_scores else 0
 
     return {
         "target_url": req.url,
         "target_domain": target_domain,
         "brand": brand,
-        "results": sorted(results, key=lambda r: -r["citation_rate"]),
+        "global_aeo_score": global_aeo,
+        "results": sorted_results,
     }
 
 
