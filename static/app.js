@@ -186,6 +186,7 @@ function renderDashboard(data) {
   renderSOVChart(data.results);
   renderDepthChart(data.results);
   renderDomainChart(data.results);
+  renderInsights(data.insights);
   renderLLMCards(data.results, data.target_domain);
 
   dashboard.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -631,4 +632,60 @@ function renderLLMCards(results, targetDomain) {
     `;
     cardsContainer.appendChild(card);
   });
+}
+
+// ===== Insights =====
+function renderInsights(insights) {
+  if (!insights) return;
+
+  // Integrated insight
+  const intEl = document.getElementById("integrated-insight");
+  const intg = insights.integrated;
+  if (!intg) { intEl.innerHTML = ""; return; }
+
+  const strengthsHtml = (intg.strengths || []).map(s => `<li>${esc(s)}</li>`).join("") || "<li>-</li>";
+  const weaknessesHtml = (intg.weaknesses || []).map(s => `<li>${esc(s)}</li>`).join("") || "<li>-</li>";
+  const actionsHtml = (intg.priority_actions || []).map(s => `<li>${esc(s)}</li>`).join("") || "<li>-</li>";
+
+  intEl.innerHTML = `
+    <div class="integrated-header">
+      <div class="grade-circle ${intg.grade}">${intg.grade}</div>
+      <div>
+        <div class="integrated-overall">${esc(intg.overall)}</div>
+        <div class="integrated-llm-summary">${esc(intg.llm_summary)}</div>
+      </div>
+    </div>
+    <div class="integrated-columns">
+      <div class="integrated-col strengths">
+        <h4>강점 (Strengths)</h4>
+        <ul>${strengthsHtml}</ul>
+      </div>
+      <div class="integrated-col weaknesses">
+        <h4>약점 (Weaknesses)</h4>
+        <ul>${weaknessesHtml}</ul>
+      </div>
+      <div class="integrated-col actions">
+        <h4>우선 개선 과제</h4>
+        <ul>${actionsHtml}</ul>
+      </div>
+    </div>
+  `;
+
+  // Metric insights
+  const metricEl = document.getElementById("metric-insights");
+  const metricInsights = insights.metric_insights || [];
+
+  metricEl.innerHTML = metricInsights.map(m => {
+    const recsHtml = (m.recommendations || []).map(r => `<li>${esc(r)}</li>`).join("");
+    return `
+      <div class="insight-card ${m.status}">
+        <div class="insight-card-header">
+          <span class="insight-status"></span>
+          <h4>${esc(m.title)}</h4>
+        </div>
+        <div class="insight-summary">${esc(m.summary)}</div>
+        <ul class="insight-recs">${recsHtml}</ul>
+      </div>
+    `;
+  }).join("");
 }
