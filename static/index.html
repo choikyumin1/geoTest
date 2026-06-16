@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AEO Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <!-- Search Section -->
+  <section id="hero">
+    <h1>AEO Dashboard</h1>
+    <p class="subtitle">Answer Engine Optimization &mdash; LLM 인용율 종합 분석</p>
+
+    <div id="llm-status" class="status-bar"></div>
+
+    <form id="search-form">
+      <div class="input-group">
+        <input id="url-input" type="text" placeholder="분석할 도메인을 입력하세요 (예: samsung.com)" autocomplete="off" required />
+      </div>
+      <div class="competitor-area">
+        <label>경쟁사 도메인 (선택)</label>
+        <input id="competitor-input" type="text" placeholder="쉼표로 구분 (예: apple.com, lg.com, huawei.com)" />
+        <button type="submit" id="search-btn">
+          <span class="btn-text">분석 시작</span>
+          <span class="btn-loading" hidden><span class="spinner"></span> 분석 중...</span>
+        </button>
+      </div>
+
+      <div class="query-mode-toggle">
+        <button type="button" class="mode-tab active" data-mode="auto">자동 생성 쿼리</button>
+        <button type="button" class="mode-tab" data-mode="custom">직접 작성</button>
+      </div>
+
+      <div id="auto-options" class="query-options">
+        <label for="num-queries">쿼리 수</label>
+        <select id="num-queries">
+          <option value="3">3</option>
+          <option value="5">5</option>
+          <option value="10" selected>10</option>
+        </select>
+      </div>
+
+      <div id="custom-prompt-area" class="custom-prompt-area" hidden>
+        <div id="prompt-list">
+          <div class="prompt-row">
+            <span class="prompt-num">1</span>
+            <textarea class="prompt-input" rows="2" placeholder="LLM에 보낼 프롬프트를 입력하세요"></textarea>
+            <button type="button" class="remove-prompt-btn" title="삭제" hidden>&times;</button>
+          </div>
+        </div>
+        <button type="button" id="add-prompt-btn" class="add-prompt-btn">+ 프롬프트 추가</button>
+      </div>
+    </form>
+
+    <p id="error-msg" class="error" hidden></p>
+  </section>
+
+  <!-- Dashboard -->
+  <section id="dashboard" hidden>
+    <!-- Dashboard Header -->
+    <div class="dash-header">
+      <div class="dash-title">
+        <h2>AEO 분석 리포트</h2>
+        <span id="result-domain" class="domain-badge"></span>
+        <span id="result-brand" class="brand-label"></span>
+      </div>
+      <div id="aeo-score-ring" class="score-ring"></div>
+    </div>
+
+    <!-- KPI Summary Cards -->
+    <div id="summary-metrics" class="kpi-grid"></div>
+
+    <!-- Row 1: Citation Rate + AEO Score per LLM -->
+    <div class="dash-row">
+      <div class="dash-card wide">
+        <h3>LLM별 인용율 (Citation Rate)</h3>
+        <canvas id="citation-chart"></canvas>
+      </div>
+      <div class="dash-card narrow">
+        <h3>LLM별 AEO 점수</h3>
+        <canvas id="aeo-score-chart"></canvas>
+      </div>
+    </div>
+
+    <!-- Row 2: Sentiment + Position -->
+    <div class="dash-row even">
+      <div class="dash-card">
+        <h3>감성 분석 (Sentiment)</h3>
+        <canvas id="sentiment-chart"></canvas>
+      </div>
+      <div class="dash-card">
+        <h3>인용 위치 (Position)</h3>
+        <canvas id="position-chart"></canvas>
+      </div>
+    </div>
+
+    <!-- Row 3: Category Performance -->
+    <div class="dash-row">
+      <div class="dash-card full">
+        <h3>쿼리 카테고리별 성과</h3>
+        <canvas id="category-chart"></canvas>
+      </div>
+    </div>
+
+    <!-- Row 4: Competitor + Share of Voice -->
+    <div id="competitive-row" class="dash-row even" hidden>
+      <div class="dash-card">
+        <h3>경쟁사 비교 (Competitor)</h3>
+        <canvas id="competitor-chart"></canvas>
+      </div>
+      <div class="dash-card">
+        <h3>Share of Voice</h3>
+        <canvas id="sov-chart"></canvas>
+      </div>
+    </div>
+
+    <!-- Row 5: Citation Depth + Recommendation -->
+    <div class="dash-row even">
+      <div class="dash-card">
+        <h3>인용 깊이 (Citation Depth)</h3>
+        <canvas id="depth-chart"></canvas>
+      </div>
+      <div class="dash-card">
+        <h3>상위 인용 도메인</h3>
+        <canvas id="domain-chart"></canvas>
+      </div>
+    </div>
+
+    <!-- Insights Section -->
+    <h3 class="section-title">AEO 인사이트</h3>
+
+    <!-- Integrated Insight -->
+    <div id="integrated-insight" class="integrated-insight"></div>
+
+    <!-- Metric Insights -->
+    <div id="metric-insights" class="insight-grid"></div>
+
+    <!-- LLM Detail Cards -->
+    <h3 class="section-title">LLM 상세 분석</h3>
+    <div id="llm-cards" class="cards-grid"></div>
+  </section>
+
+  <footer>
+    <p>AEO Dashboard &mdash; Answer Engine Optimization Analytics</p>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
